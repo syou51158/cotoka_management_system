@@ -1,0 +1,324 @@
+<?php
+/**
+ * User クラス
+ * 
+ * ユーザー情報の管理を行うクラス
+ */
+class User
+{
+    private $db;
+    
+    /**
+     * コンストラクタ - データベース接続を取得
+     */
+    public function __construct(Database $db)
+    {
+        $this->db = $db;
+    }
+    
+    /**
+     * ユーザー認証を行う
+     * 
+     * @param string $email メールアドレス
+     * @param string $password パスワード
+     * @return array|false 認証成功時はユーザー情報の配列、失敗時はfalse
+     */
+    public function authenticate($email, $password)
+    {
+        $sql = "SELECT * FROM users WHERE email = ? AND status = 'active'";
+        $user = $this->db->fetchOne($sql, [$email]);
+        
+        if ($user && password_verify($password, $user['password'])) {
+            // パスワードハッシュをデータベースに保存しない
+            unset($user['password']);
+            return $user;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * ログイン処理
+     * 
+     * @param string $identifier ユーザーIDまたはメールアドレス
+     * @param string $password パスワード
+     * @param bool $rememberMe ログイン状態を保持するか
+     * @return bool ログイン成功時はtrue、失敗時はfalse
+     */
+    public function login($identifier, $password, $rememberMe = false) {
+        try {
+            // メールアドレスまたはユーザーIDでユーザーを検索
+            $sql = "SELECT u.*, r.role_name 
+                   FROM users u 
+                   LEFT JOIN roles r ON u.role_id = r.role_id 
+                   WHERE (u.email = ? OR u.user_id = ?) AND u.status = 'active' 
+                   LIMIT 1";
+            $params = [$identifier, $identifier];
+            
+            // デバッグ情報
+            error_log('Login SQL: ' . $sql);
+            error_log('Login Parameters: ' . json_encode($params, JSON_UNESCAPED_UNICODE));
+            
+            $user = $this->db->fetchOne($sql, $params);
+            
+            error_log('ユーザー情報: ' . json_encode($user, JSON_UNESCAPED_UNICODE));
+            
+            if (!$user) {
+                error_log('ユーザーが見つかりません: ' . $identifier);
+                return false;
+            }
+            
+            if (!password_verify($password, $user['password'])) {
+                error_log('パスワードが一致しません');
+                return false;
+            }
+            
+            // セッションにユーザー情報を保存
+            $_SESSION['user_id'] = (int)$user['id'];
+            $_SESSION['user_unique_id'] = $user['user_id'];
+            $_SESSION['role_id'] = $user['role_id'];
+            $_SESSION['role_name'] = $user['role_name'];
+            $_SESSION['user_name'] = $user['name'];
+            
+            // テナントIDを設定（存在し、全体管理者でない場合）
+            if (isset($user['tenant_id']) && $user['role_name'] !== 'admin') {
+                $_SESSION['tenant_id'] = $user['tenant_id'];
+                
+                // テナント情報を取得
+                $sql = "SELECT * FROM tenants WHERE tenant_id = ?";
+                $tenant = $this->db->fetchOne($sql, [$user['tenant_id']]);
+                
+                if ($tenant) {
+                    $_SESSION['tenant_name'] = $tenant['company_name'];
+                }
+            }
+            
+            // アクセス可能なサロンのリストを取得（役割に基づいて）
+            $_SESSION['accessible_salons'] = $this->getAccessibleSalonIds($user['id'], $user['role_name'], $user['tenant_id'] ?? null);
+            
+            error_log('ログイン成功。セッション情報: ' . json_encode($_SESSION, JSON_UNESCAPED_UNICODE));
+            
+            // Remember Me機能
+            if ($rememberMe) {
+                $token = bin2hex(random_bytes(32));
+                $expires = date('Y-m-d H:i:s', strtotime('+30 days'));
+                
+                // remember_meトークンをデータベースに保存
+                $sql = "INSERT INTO remember_tokens (user_id, token, expires_at) VALUES (?, ?, ?)";
+                $this->db->query($sql, [
+                    $user['user_id'],
+                    $token,
+                    $expires
+                ]);
+                
+                // Cookieを設定
+                setcookie('remember_token', $token, strtotime('+30 days'), '/', '', true, true);
+            }
+            
+            // 最終ログイン日時を更新
+            $this->updateLastLogin($user['id']);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            error_log('ログインエラー: ' . $e->getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * ユーザー情報を取得
+     * 
+     * @param int $userId ユーザーID
+     * @return array|false ユーザー情報の配列、またはユーザーが見つからない場合はfalse
+     */
+    public function getById($userId)
+    {
+        $sql = "SELECT u.*, r.role_name 
+                FROM users u 
+                LEFT JOIN roles r ON u.role_id = r.role_id 
+                WHERE u.id = ?";
+        $user = $this->db->fetchOne($sql, [$userId]);
+        
+        if ($user) {
+            unset($user['password']);
+        }
+        
+        return $user;
+    }
+    
+    /**
+     * ユーザーが特定のロールを持っているか確認
+     * 
+     * @param int $userId ユーザーID
+     * @param string $roleName ロール名
+     * @return bool ユーザーが指定されたロールを持っている場合はtrue
+     */
+    public function hasRole($userId, $roleName)
+    {
+        $sql = "SELECT COUNT(*) as count 
+                FROM users u 
+                JOIN roles r ON u.role_id = r.role_id 
+                WHERE u.id = ? AND r.role_name = ?";
+        $result = $this->db->fetchOne($sql, [$userId, $roleName]);
+        
+        return $result['count'] > 0;
+    }
+    
+    /**
+     * 役割に基づいてアクセス可能なサロンIDのリストを取得
+     * 
+     * @param int $userId ユーザーID
+     * @param string $roleName ロール名
+     * @param int|null $tenantId テナントID
+     * @return array サロンIDの配列
+     */
+    private function getAccessibleSalonIds($userId, $roleName, $tenantId = null)
+    {
+        $salonIds = [];
+        
+        // 全体管理者は全てのサロンにアクセス可能
+        if ($roleName === 'admin') {
+            $sql = "SELECT salon_id FROM salons";
+            $salons = $this->db->fetchAll($sql);
+            
+            foreach ($salons as $salon) {
+                $salonIds[] = (int)$salon['salon_id'];
+            }
+            
+            return $salonIds;
+        }
+        
+        // テナント管理者はそのテナントの全サロンにアクセス可能
+        if ($roleName === 'tenant_admin' && $tenantId) {
+            $sql = "SELECT salon_id FROM salons WHERE tenant_id = ?";
+            $salons = $this->db->fetchAll($sql, [$tenantId]);
+            
+            foreach ($salons as $salon) {
+                $salonIds[] = (int)$salon['salon_id'];
+            }
+            
+            return $salonIds;
+        }
+        
+        // マネージャーとスタッフはuser_salonsテーブルで定義されたサロンのみアクセス可能
+        if (($roleName === 'manager' || $roleName === 'staff') && $tenantId) {
+            $sql = "SELECT salon_id FROM user_salons WHERE user_id = ?";
+            $salons = $this->db->fetchAll($sql, [$userId]);
+            
+            foreach ($salons as $salon) {
+                $salonIds[] = (int)$salon['salon_id'];
+            }
+            
+            return $salonIds;
+        }
+        
+        return $salonIds;
+    }
+    
+    /**
+     * ユーザーがサロンにアクセスする権限を持っているか確認
+     * 
+     * @param int $userId ユーザーID
+     * @param int $salonId サロンID
+     * @return bool アクセス権限がある場合はtrue
+     */
+    public function canAccessSalon($userId, $salonId)
+    {
+        $user = $this->getById($userId);
+        
+        if (!$user) {
+            return false;
+        }
+        
+        // 全体管理者は全てのサロンにアクセス可能
+        if ($user['role_name'] === 'admin') {
+            return true;
+        }
+        
+        // テナント管理者はそのテナントの全サロンにアクセス可能
+        if ($user['role_name'] === 'tenant_admin') {
+            $sql = "SELECT COUNT(*) as count 
+                    FROM salons 
+                    WHERE salon_id = ? AND tenant_id = ?";
+            $result = $this->db->fetchOne($sql, [$salonId, $user['tenant_id']]);
+            
+            return $result['count'] > 0;
+        }
+        
+        // マネージャーとスタッフはuser_salonsテーブルで定義されたサロンのみアクセス可能
+        $sql = "SELECT COUNT(*) as count 
+                FROM user_salons 
+                WHERE user_id = ? AND salon_id = ?";
+        $result = $this->db->fetchOne($sql, [$userId, $salonId]);
+        
+        return $result['count'] > 0;
+    }
+    
+    /**
+     * 最終ログイン日時を更新
+     * 
+     * @param int $userId ユーザーID
+     * @return bool 更新が成功したかどうか
+     */
+    public function updateLastLogin($userId)
+    {
+        $sql = "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?";
+        $this->db->query($sql, [$userId]);
+        return true;
+    }
+    
+    /**
+     * テナントに属するユーザーを取得
+     * 
+     * @param int $tenantId テナントID
+     * @param string|null $status ステータスでフィルタリング
+     * @return array ユーザー情報の配列
+     */
+    public function getByTenantId($tenantId, $status = null)
+    {
+        $sql = "SELECT * FROM users WHERE tenant_id = ?";
+        $params = [$tenantId];
+        
+        if ($status) {
+            $sql .= " AND status = ?";
+            $params[] = $status;
+        }
+        
+        $sql .= " ORDER BY name ASC";
+        
+        $users = $this->db->fetchAll($sql, $params);
+        
+        // パスワードハッシュをリストから削除
+        foreach ($users as &$user) {
+            unset($user['password']);
+        }
+        
+        return $users;
+    }
+    
+    /**
+     * テナント内でユーザーのメールアドレスが重複していないかチェック
+     * 
+     * @param string $email メールアドレス
+     * @param int $tenantId テナントID
+     * @param int|null $excludeUserId 除外するユーザーID（更新時）
+     * @return bool メールアドレスが重複していなければtrue
+     */
+    public function isEmailUniqueInTenant($email, $tenantId, $excludeUserId = null)
+    {
+        $sql = "SELECT COUNT(*) as count FROM users WHERE email = ? AND tenant_id = ?";
+        $params = [$email, $tenantId];
+        
+        if ($excludeUserId) {
+            $sql .= " AND id != ?";
+            $params[] = $excludeUserId;
+        }
+        
+        $result = $this->db->fetchOne($sql, $params);
+        
+        return $result['count'] == 0;
+    }
+    
+    // 残りのメソッドもここに追加します...
+} 

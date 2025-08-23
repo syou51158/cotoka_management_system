@@ -1,0 +1,48 @@
+/* 
+ * Cotoka Management System - フッター専用CSS
+ * システム全体で使用するフッタースタイル
+ * 最終更新: 2025年3月4日
+ */
+
+/* ========================= */
+/* フッタースタイル */
+/* ========================= */
+.dashboard-footer {
+  background-color: #212529;
+  color: #f5f5f5;
+  padding: 20px 0;
+  margin-top: 40px;
+  font-size: 0.85rem;
+}
+
+.dashboard-footer a {
+  color: #d4af37;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.dashboard-footer a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.version {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* レスポンシブ調整 */
+@media (max-width: 576px) {
+  .dashboard-footer {
+    text-align: center;
+  }
+  
+  .dashboard-footer .text-end {
+    text-align: center !important;
+    margin-top: 10px;
+  }
+} 

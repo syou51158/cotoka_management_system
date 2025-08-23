@@ -1,0 +1,44 @@
+/* スタッフ管理ページのスタイル */
+
+/* メインコンテンツのバランス調整 */
+.col-md-12.col-lg-12.px-md-4 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    max-width: 100%;
+    width: 100%;
+}
+
+/* テーブルの調整 */
+.table-responsive {
+    overflow-x: auto;
+    width: 100%;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* モバイル対応 */
+@media (max-width: 992px) {
+    .table {
+        min-width: 800px;
+    }
+}
+
+/* ボタンとアクション */
+.actions-column {
+    min-width: 200px;
+    white-space: nowrap;
+}
+
+.btn {
+    margin-right: 2px;
+}
+
+/* モーダルスタイル */
+.modal-header {
+    background-color: var(--primary-color, #2e59d9);
+    color: white;
+}
+
+.modal-footer {
+    background-color: #f8f9fc;
+} 

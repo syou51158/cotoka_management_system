@@ -1,0 +1,106 @@
+/* index.css - トップページのスタイル */
+
+.salon-card {
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.salon-info {
+    margin-bottom: 2rem;
+    text-align: center;
+}
+
+.salon-info h2 {
+    color: var(--primary-dark);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.salon-info p {
+    color: #666;
+    margin-bottom: 0;
+}
+
+.salon-details {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.salon-detail {
+    display: flex;
+    align-items: flex-start;
+}
+
+.salon-detail i {
+    font-size: 1.5rem;
+    color: var(--primary-color);
+    margin-right: 1rem;
+    min-width: 30px;
+    text-align: center;
+}
+
+.salon-detail-text {
+    flex: 1;
+}
+
+.salon-detail-text strong {
+    display: block;
+    margin-bottom: 0.3rem;
+    color: #333;
+}
+
+.business-hours-list {
+    margin-top: 0.5rem;
+    color: #666;
+}
+
+.business-hours-list div {
+    margin-bottom: 0.3rem;
+}
+
+.booking-btn {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+    color: white;
+    border: none;
+    border-radius: 25px;
+    padding: 0.8rem 2rem;
+    font-size: 1.1rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(233, 30, 99, 0.2);
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+}
+
+.booking-btn:hover {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(233, 30, 99, 0.3);
+    text-decoration: none;
+}
+
+.booking-btn i {
+    margin-left: 0.5rem;
+}
+
+@media (max-width: 767px) {
+    .salon-card {
+        padding: 1.5rem;
+    }
+    
+    .salon-detail {
+        flex-direction: column;
+    }
+    
+    .salon-detail i {
+        margin-bottom: 0.5rem;
+    }
+} 

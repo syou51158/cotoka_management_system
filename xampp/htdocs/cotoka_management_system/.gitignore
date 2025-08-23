@@ -1,0 +1,56 @@
+# Cotoka Management System .gitignore
+
+# 設定ファイル
+/config/config.php
+
+# キャッシュとログファイル
+*.log
+*.cache
+.sass-cache/
+*.sql.gz
+
+# バックアップファイル
+*.bak
+*.backup*
+*_backup*
+*.swp
+
+# 一時ファイル
+/tmp/
+temp/
+.tmp/
+
+# ベンダーファイル (Composerの依存関係)
+/vendor/
+
+# IDEとエディタのファイル
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+
+# 環境設定
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# ノードモジュール
+/node_modules/
+
+# PHPのデバッグファイル
+debug.log
+error_log
+
+# Composerのファイル
+# composer.phar
+
+# 自動生成されたドキュメント
+/docs/api/
+
+# バックアップファイル
+appointment_ledger.php.bak
+appointment_ledger.php.backup_*
+appointment_ledger.php.backup* 

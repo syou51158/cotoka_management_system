@@ -1,0 +1,116 @@
+/* tenant_management.css */
+
+/* ページ全体のスタイル */
+.page-title {
+    color: #333;
+    font-weight: 600;
+}
+
+/* カードスタイル */
+.card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    border: none;
+    margin-bottom: 20px;
+}
+
+.card-header {
+    border-radius: 8px 8px 0 0 !important;
+    padding: 12px 15px;
+}
+
+.card-title {
+    margin-bottom: 0;
+    font-weight: 600;
+}
+
+/* テーブルスタイル */
+.table {
+    margin-bottom: 0;
+}
+
+.table thead th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    border-bottom-width: 1px;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+/* フォームスタイル */
+.form-control:focus, .form-select:focus, .form-check-input:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.25rem rgba(0, 123, 255, 0.25);
+}
+
+/* 営業時間設定テーブル */
+.time-input {
+    min-width: 120px;
+}
+
+.form-switch {
+    padding-left: 2.5em;
+}
+
+.form-check-input.day-status {
+    cursor: pointer;
+    width: 3em;
+    height: 1.5em;
+    margin-top: 0.25em;
+}
+
+.status-text {
+    font-weight: 500;
+}
+
+/* ボタンスタイル */
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+/* アラートスタイル */
+.alert {
+    border-radius: 6px;
+    padding: 12px 15px;
+}
+
+.alert i {
+    margin-right: 8px;
+}
+
+/* レスポンシブスタイル */
+@media (max-width: 992px) {
+    .table-responsive {
+        margin-bottom: 1rem;
+    }
+    
+    .card-body {
+        padding: 15px;
+    }
+}
+
+/* トグルスイッチのカスタムカラー */
+.form-check-input:checked {
+    background-color: #28a745;
+    border-color: #28a745;
+}
+
+/* 非アクティブな要素 */
+input:disabled {
+    background-color: #e9ecef;
+    opacity: 0.65;
+}
+
+/* ツールチップ */
+[title] {
+    position: relative;
+    cursor: help;
+}

@@ -1,0 +1,328 @@
+/* Cotoka Management System - ログインページスタイル */
+
+/* ログインページ基本スタイル */
+body.login-page {
+  font-family: 'Playfair Display', 'Noto Sans JP', serif;
+  background-color: var(--luxury-bg);
+  margin: 0;
+  padding: 0;
+  color: var(--luxury-text);
+  width: 100%;
+  min-height: 100vh;
+  -webkit-overflow-scrolling: touch;
+  touch-action: manipulation;
+}
+
+/* ログイン画面の背景 */
+.auth-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  background: linear-gradient(135deg, var(--luxury-bg) 0%, var(--luxury-secondary-bg) 100%);
+  overflow: hidden;
+}
+
+/* ログインコンテナ */
+.login-container {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+/* ログインカード */
+.login-card {
+  display: flex;
+  background-color: var(--luxury-card-bg);
+  border-radius: 16px;
+  box-shadow: var(--luxury-shadow);
+  overflow: hidden;
+  width: 100%;
+  max-width: 1000px;
+  position: relative;
+  border: var(--luxury-border);
+}
+
+/* ブランド情報エリア */
+.login-brand {
+  flex: 1;
+  padding: 3rem;
+  background: linear-gradient(to right bottom, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.8));
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* ブランドタイトル */
+.brand-title {
+  margin-bottom: 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transform-style: preserve-3d;
+  position: relative;
+}
+
+.brand-title h1 {
+  font-size: 2.8rem;
+  font-weight: 700;
+  color: var(--luxury-dark-gold);
+  margin: 0;
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  line-height: 1.1;
+}
+
+.word {
+  display: block;
+  position: relative;
+  transition: all 0.3s ease;
+  color: var(--luxury-text);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.word-management {
+  font-size: 0.8em;
+  color: var(--luxury-dark-gold);
+}
+
+.word-system {
+  font-size: 0.65em;
+  opacity: 0.9;
+}
+
+/* ログインブランドの説明文 */
+.login-brand p {
+  text-align: center;
+  font-size: 1.1rem;
+  margin: 0 0 2rem;
+  color: var(--luxury-text);
+  line-height: 1.6;
+}
+
+/* アニメーションテキスト */
+.animated-tagline {
+  font-size: 1.2rem;
+  text-align: center;
+  margin: 1.5rem 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.animated-tagline .tagline-text {
+  display: inline-block;
+  animation: floatTagline 6s ease-in-out infinite;
+  color: var(--luxury-dark-gold);
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+/* 特徴リスト */
+.features {
+  margin-top: 2rem;
+}
+
+.features ul li {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  color: var(--luxury-text);
+}
+
+.features ul li i {
+  color: var(--luxury-dark-gold);
+  margin-right: 0.8rem;
+  font-size: 1.2rem;
+}
+
+/* ログインフォーム */
+.login-form {
+  flex: 1;
+  padding: 3rem;
+  background-color: white;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.login-form h2 {
+  font-size: 2.2rem;
+  color: var(--luxury-text);
+  margin-bottom: 1.5rem;
+  position: relative;
+  font-weight: 600;
+}
+
+.login-form h2::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  width: 50px;
+  height: 3px;
+  background: var(--luxury-gold);
+}
+
+/* フォーム要素 */
+.form-floating {
+  margin-bottom: 1.5rem;
+}
+
+.form-control {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  height: calc(3.5rem + 2px);
+  font-size: 1rem;
+  transition: all 0.3s;
+}
+
+.form-control:focus {
+  border-color: var(--luxury-gold);
+  box-shadow: 0 0 0 0.25rem rgba(230, 198, 110, 0.25);
+}
+
+/* パスワードフィールド */
+.password-container {
+  position: relative;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.password-toggle:hover {
+  color: var(--luxury-dark-gold);
+}
+
+/* チェックボックス */
+.form-check {
+  margin-bottom: 1.5rem;
+}
+
+.form-check-input {
+  width: 1.1em;
+  height: 1.1em;
+  margin-top: 0.2em;
+  background-color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.form-check-input:checked {
+  background-color: var(--luxury-gold);
+  border-color: var(--luxury-dark-gold);
+}
+
+.form-check-label {
+  color: var(--luxury-text);
+  font-size: 0.95rem;
+}
+
+/* ゴールドボタン */
+.btn-gold {
+  background: linear-gradient(135deg, var(--luxury-dark-gold) 0%, var(--luxury-gold) 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s;
+  box-shadow: 0 4px 10px rgba(190, 155, 48, 0.3);
+  cursor: pointer;
+}
+
+.btn-gold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(190, 155, 48, 0.4);
+  background: linear-gradient(135deg, var(--luxury-gold) 0%, var(--luxury-bright-gold) 100%);
+}
+
+/* アニメーション */
+@keyframes floatTagline {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-5px) rotate(1deg); }
+  75% { transform: translateY(5px) rotate(-1deg); }
+}
+
+/* レスポンシブデザイン */
+@media (max-width: 992px) {
+  .login-card {
+    flex-direction: column;
+    max-width: 600px;
+  }
+  
+  .login-brand, .login-form {
+    padding: 2.5rem 2rem;
+  }
+  
+  .brand-title h1 {
+    font-size: 2.5rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .login-brand, .login-form {
+    padding: 2rem 1.5rem;
+  }
+  
+  .brand-title h1 {
+    font-size: 2.2rem;
+  }
+  
+  .login-brand p {
+    font-size: 0.95rem;
+  }
+  
+  .animated-tagline {
+    font-size: 1rem;
+  }
+  
+  .features ul li {
+    font-size: 0.9rem;
+  }
+  
+  .login-container {
+    padding: 10px;
+    align-items: flex-start;
+  }
+  
+  .login-card {
+    margin: 20px 0;
+  }
+}
+
+/* 超小型デバイス用 */
+@media (max-width: 380px) {
+  .login-brand, .login-form {
+    padding: 1.5rem 1rem;
+  }
+  
+  .brand-title h1 {
+    font-size: 1.8rem;
+  }
+  
+  .btn-gold {
+    padding: 0.6rem 1.2rem;
+    font-size: 1rem;
+  }
+} 

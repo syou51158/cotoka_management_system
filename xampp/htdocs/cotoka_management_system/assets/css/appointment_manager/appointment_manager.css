@@ -1,0 +1,271 @@
+.status-badge {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+}
+.appointment-card {
+    transition: all 0.2s ease;
+    border-left: 4px solid #ccc;
+}
+.appointment-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.appointment-card.status-scheduled { border-left-color: #ffc107; }
+.appointment-card.status-confirmed { border-left-color: #0dcaf0; }
+.appointment-card.status-completed { border-left-color: #198754; }
+.appointment-card.status-cancelled { border-left-color: #dc3545; }
+.appointment-card.status-no-show { border-left-color: #6c757d; }
+
+.filter-card {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+}
+
+.quick-stats {
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* モーダル関連のスタイル追加 */
+.modal-backdrop {
+    z-index: 1040 !important;
+}
+
+.modal {
+    z-index: 1050 !important;
+}
+
+#appointment-details-modal .modal-dialog,
+#appointment-modal .modal-dialog {
+    z-index: 1055 !important;
+}
+
+/* モーダルが確実にサイドメニューの上に表示されるための追加スタイル */
+body.modal-open {
+    overflow: hidden;
+    padding-right: 0px !important;
+}
+
+body.modal-open .sidebar {
+    z-index: 999 !important;
+}
+
+body.modal-open .modal {
+    z-index: 1050 !important;
+}
+
+.modal-content {
+    box-shadow: 0 5px 15px rgba(0,0,0,.5);
+}
+
+/* 予約カードのスタイルを改善 */
+.appointment-card {
+    cursor: pointer;
+    margin-bottom: 1rem;
+}
+
+.appointment-card:hover {
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+/* 詳細モーダルのスタイル */
+#appointment-details-modal .modal-content,
+#appointment-modal .modal-content {
+    border-radius: 8px;
+    border: none;
+}
+
+/* サイドメニューより前面に表示されるようにする */
+#appointment-details-modal {
+    z-index: 1100 !important;
+}
+
+.modal-backdrop.show {
+    opacity: 0.7;
+}
+
+/* カレンダービュー関連のスタイル */
+.calendar-container {
+    overflow-x: auto;
+    min-height: 600px;
+    position: relative;
+}
+
+.calendar-header {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #fff;
+}
+
+.time-column {
+    width: 60px;
+    min-width: 60px;
+    border-right: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+}
+
+.day-headers {
+    display: flex;
+    flex: 1;
+}
+
+.day-header {
+    flex: 1;
+    text-align: center;
+    padding: 10px 5px;
+    border-bottom: 1px solid #e0e0e0;
+    border-right: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.day-header.today {
+    background-color: #e3f2fd;
+    color: #0d6efd;
+}
+
+.calendar-body {
+    display: flex;
+}
+
+.time-slots {
+    width: 60px;
+    min-width: 60px;
+    border-right: 1px solid #e0e0e0;
+}
+
+.time-slot {
+    height: 60px;
+    text-align: center;
+    padding-top: 5px;
+    border-bottom: 1px solid #e0e0e0;
+    color: #757575;
+    font-size: 0.8rem;
+}
+
+.days-container {
+    display: flex;
+    flex: 1;
+}
+
+.day-column {
+    flex: 1;
+    position: relative;
+    min-height: 1080px; /* 18時間 x 60px */
+    border-right: 1px solid #e0e0e0;
+}
+
+.day-column.today {
+    background-color: #f8f9fa;
+}
+
+.hour-marker {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-bottom: 1px solid #e0e0e0;
+    height: 1px;
+    z-index: 1;
+}
+
+.half-hour-marker {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-bottom: 1px dashed #e0e0e0;
+    height: 1px;
+    z-index: 1;
+}
+
+.current-time-marker {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 2px solid #f44336;
+    z-index: 5;
+}
+
+.current-time-marker::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    width: 8px;
+    height: 8px;
+    background-color: #f44336;
+    border-radius: 50%;
+}
+
+.appointment-event {
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    padding: 5px;
+    border-radius: 4px;
+    overflow: hidden;
+    z-index: 2;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+
+.appointment-event:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    z-index: 3;
+}
+
+.event-customer {
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.event-service {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.9;
+}
+
+.event-time {
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.event-scheduled { background-color: #6c757d; }
+.event-confirmed { background-color: #0d6efd; }
+.event-completed { background-color: #198754; }
+.event-cancelled { background-color: #dc3545; }
+.event-no-show { background-color: #ffc107; color: #212529; }
+
+/* タスクタイプ別のスタイル */
+.event-internal { background-color: #6610f2; }
+.event-break { background-color: #20c997; }
+.event-other { background-color: #fd7e14; }
+
+/* 表示切り替え関連 */
+.view-container {
+    position: relative;
+}
+
+.view-content {
+    transition: opacity 0.3s ease;
+}
+
+.view-content.d-none {
+    display: none !important;
+}
+
+/* レスポンシブ調整 */
+@media (max-width: 768px) {
+    .day-column {
+        min-width: 150px;
+    }
+} 

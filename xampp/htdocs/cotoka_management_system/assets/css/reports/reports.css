@@ -1,0 +1,245 @@
+/* レポートページのスタイル */
+
+/* レポートカード */
+.report-card {
+    border-radius: 0.5rem;
+    box-shadow: 0 0.15rem 1.75rem rgba(0, 0, 0, 0.15);
+    margin-bottom: 1.5rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.report-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.2);
+}
+
+.report-card .card-header {
+    background-color: #4e73df;
+    color: white;
+    font-weight: 600;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.report-card .card-body {
+    padding: 1.5rem;
+}
+
+/* レポートタイプナビゲーション */
+.report-type-nav {
+    margin-bottom: 2rem;
+}
+
+.report-type-nav .nav-link {
+    color: #5a5c69;
+    border-radius: 0.25rem;
+    padding: 0.75rem 1.25rem;
+    margin-right: 0.5rem;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.report-type-nav .nav-link:hover {
+    background-color: #f8f9fc;
+}
+
+.report-type-nav .nav-link.active {
+    background-color: #4e73df;
+    color: white;
+    font-weight: 600;
+}
+
+.report-type-nav .nav-link i {
+    margin-right: 0.5rem;
+}
+
+/* 期間ナビゲーション */
+.date-navigation {
+    background-color: #f8f9fc;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 2rem;
+}
+
+.current-period {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+    color: #4e73df;
+}
+
+/* フィルターカード */
+.filter-card {
+    background-color: #f8f9fc;
+    border: none;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 2rem;
+}
+
+/* サマリーカード */
+.summary-card {
+    border-left: 4px solid #4e73df;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.summary-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.summary-card .summary-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+.summary-card .summary-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 0.5rem 0;
+}
+
+.summary-card .summary-change {
+    font-size: 0.8rem;
+    color: #858796;
+}
+
+.summary-card .summary-change.positive {
+    color: #1cc88a;
+}
+
+.summary-card .summary-change.negative {
+    color: #e74a3b;
+}
+
+/* グラフコンテナ */
+.chart-container {
+    position: relative;
+    height: 400px;
+    margin-bottom: 2rem;
+}
+
+/* データテーブル */
+.table-responsive {
+    margin-bottom: 2rem;
+}
+
+.data-table th {
+    background-color: #f8f9fc;
+    font-weight: 600;
+    border-bottom: 2px solid #e3e6f0;
+}
+
+.data-table tbody tr {
+    transition: background-color 0.2s;
+}
+
+.data-table tbody tr:hover {
+    background-color: rgba(78, 115, 223, 0.05);
+}
+
+/* KPI表示 */
+.kpi-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.kpi-card {
+    flex: 1 1 300px;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+    background-color: white;
+}
+
+.kpi-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #5a5c69;
+    margin-bottom: 0.5rem;
+}
+
+.kpi-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #4e73df;
+    margin-bottom: 0.5rem;
+}
+
+.kpi-description {
+    font-size: 0.8rem;
+    color: #858796;
+}
+
+/* モーダルスタイル */
+.modal-header {
+    background-color: #4e73df;
+    color: white;
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+/* プログレスバー */
+.progress {
+    height: 0.5rem;
+    border-radius: 0.25rem;
+    margin-top: 0.5rem;
+    background-color: #eaecf4;
+}
+
+.progress-bar {
+    background-color: #4e73df;
+    border-radius: 0.25rem;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .summary-card {
+        margin-bottom: 1rem;
+    }
+    
+    .chart-container {
+        height: 300px;
+    }
+    
+    .current-period {
+        font-size: 1.2rem;
+    }
+    
+    .report-type-nav .nav-link {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+    }
+}
+
+/* 印刷用の調整 */
+@media print {
+    .sidebar, .navbar, .btn-toolbar, .filter-card, .report-type-nav {
+        display: none !important;
+    }
+    
+    .container-fluid {
+        width: 100% !important;
+        padding: 0 !important;
+    }
+    
+    .chart-container {
+        page-break-inside: avoid;
+        height: 350px;
+    }
+    
+    .card {
+        break-inside: avoid;
+    }
+    
+    .table-responsive {
+        overflow-x: visible !important;
+    }
+} 

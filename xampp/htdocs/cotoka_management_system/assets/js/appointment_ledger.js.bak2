@@ -1,0 +1,2210 @@
+/**
+ * 予約台帳ページ用JavaScript
+ * COTOKA Management System
+ */
+
+// ユーティリティ関数の定義（グローバルスコープで最初に定義）
+// ローディングインジケーター表示/非表示
+window.showLoading = function() {
+    console.log('読み込み中...');
+    // ローディングインジケーターが実装されていない場合のフォールバック
+    if ($('#loading-indicator').length === 0) {
+        $('body').append('<div id="loading-indicator" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;justify-content:center;align-items:center;"><div style="background:white;padding:20px;border-radius:5px;"><i class="fas fa-spinner fa-spin"></i> 処理中...</div></div>');
+    } else {
+        $('#loading-indicator').show();
+    }
+};
+
+window.hideLoading = function() {
+    console.log('読み込み完了');
+    $('#loading-indicator').hide();
+};
+
+// メッセージ表示関数
+window.showMessage = function(message, type = 'info') {
+    console.log(`メッセージ (${type}): ${message}`);
+    // メッセージ表示機能が実装されていない場合のフォールバック
+    let alertClass = 'alert-info';
+    if (type === 'success') alertClass = 'alert-success';
+    if (type === 'error' || type === 'danger') alertClass = 'alert-danger';
+    if (type === 'warning') alertClass = 'alert-warning';
+    
+    // 既存のアラートを削除
+    $('.js-alert-message').remove();
+    
+    // 新しいアラートを追加（より目立つスタイルを適用）
+    const $alert = $(`<div class="alert ${alertClass} js-alert-message" style="position:fixed;top:20px;left:20px;right:20px;z-index:9999;min-width:300px;text-align:center;box-shadow:0 4px 8px rgba(0,0,0,0.2);">
+        <strong>${message}</strong>
+        <button type="button" class="close" data-dismiss="alert">&times;</button>
+    </div>`);
+    $('body').append($alert);
+    
+    // クリックで閉じる
+    $alert.on('click', function() {
+        $(this).fadeOut(300, function() { $(this).remove(); });
+    });
+    
+    // 一定時間後に自動で消える
+    setTimeout(function() {
+        $alert.fadeOut(300, function() { $(this).remove(); });
+    }, 5000);
+};
+
+// 時間の足し算を行う関数（開始時間+時間(分)で終了時間を計算）
+function calculateEndTime(startTime, durationMinutes) {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + durationMinutes;
+    
+    const endHours = Math.floor(endMinutes / 60);
+    const endMins = endMinutes % 60;
+    
+    return `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
+}
+
+// 予約時間の更新API呼び出し
+function updateAppointmentTime(appointmentId, staffId, newStartTime) {
+    // ローディングインジケーターを表示
+    showLoading();
+    
+    // CSRFトークン要素の確認
+    const csrfElement = document.getElementById('csrf_token');
+    if (!csrfElement) {
+        console.error('CSRF トークン要素が見つかりません');
+        hideLoading();
+        showMessage('セキュリティトークンが見つかりません', 'error');
+        return;
+    }
+    
+    const csrfToken = csrfElement.value;
+    
+    // APIエンドポイントのURLを確認
+    const apiUrl = 'api/appointments/update_appointment.php';
+    
+    // 日付の取得（hiddenフィールドから）
+    const selectedDate = $('#selected-date-value').val();
+    
+    // サービス時間から終了時間を計算
+    let endTime = calculateEndTime(newStartTime, 60); // デフォルト60分
+    
+    console.log('予約更新パラメータ:', appointmentId, staffId, newStartTime, endTime, selectedDate, 'CSRF:', csrfToken);
+    
+    try {
+        // API呼び出し（フォームデータ形式）
+        $.ajax({
+            url: apiUrl,
+            method: 'POST',
+            data: {
+                appointment_id: appointmentId,
+                staff_id: staffId,
+                start_time: newStartTime,
+                end_time: endTime,
+                appointment_date: selectedDate,
+                csrf_token: csrfToken
+            },
+            success: function(response) {
+                hideLoading();
+                console.log('API応答:', response);
+                
+                if (response && response.success) {
+                    // 成功時の処理
+                    showMessage('予約時間を更新しました', 'success');
+                    
+                    // 少し遅延してから画面をリロード
+                    setTimeout(function() {
+                        location.reload();
+                    }, 1000);
+                } else {
+                    // エラー時の処理
+                    const errorMsg = (response && response.message) ? response.message : '予約時間の更新に失敗しました';
+                    showMessage(`エラー: ${errorMsg}`, 'error');
+                    console.error('API エラー応答:', response);
+                }
+            },
+            error: function(xhr, status, error) {
+                hideLoading();
+                console.error('API通信エラー:', status, error);
+                console.error('応答テキスト:', xhr.responseText);
+                
+                let errorMsg = '通信エラーが発生しました';
+                try {
+                    // JSON形式のエラーメッセージがある場合は解析
+                    const jsonResponse = JSON.parse(xhr.responseText);
+                    if (jsonResponse && jsonResponse.message) {
+                        errorMsg = `エラー: ${jsonResponse.message}`;
+                    }
+                } catch (e) {
+                    // 解析できない場合は応答テキストをそのまま使用
+                    if (xhr.responseText) {
+                        errorMsg = `エラー: ${xhr.responseText}`;
+                    }
+                }
+                
+                showMessage(errorMsg, 'error');
+            }
+        });
+    } catch (e) {
+        hideLoading();
+        console.error('予約時間更新処理中の例外:', e);
+        showMessage(`予期しないエラーが発生しました: ${e.message}`, 'error');
+    }
+}
+
+// 予約枠のドラッグ＆ドロップ機能を初期化する関数（グローバルスコープで定義）
+function initializeAppointmentDraggable() {
+    console.log('ドラッグ＆ドロップ機能の初期化を開始します');
+    if (typeof jQuery !== 'undefined' && typeof jQuery.ui !== 'undefined') {
+        console.log('jQuery UI を検出、ドラッグ＆ドロップ機能を初期化');
+        
+        try {
+            $(".appointment-item").draggable({
+                containment: ".timetable-container",
+                snap: ".time-cell",
+                snapMode: "inner",
+                snapTolerance: 15,
+                revert: "invalid",
+                helper: "clone",
+                zIndex: 1000,
+                start: function(event, ui) {
+                    $(this).addClass("dragging");
+                },
+                stop: function(event, ui) {
+                    $(this).removeClass("dragging");
+                }
+            });
+            
+            $(".time-cell").droppable({
+                accept: ".appointment-item",
+                hoverClass: "ui-state-highlight",
+                drop: function(event, ui) {
+                    const appointmentId = ui.draggable.data("appointment-id");
+                    const staffId = $(this).data("staff-id");
+                    const timeSlot = $(this).data("time-slot");
+                    const isOutsideShift = $(this).data("outside-shift") === true;
+                    
+                    // シフト時間外へのドロップは拒否
+                    if (isOutsideShift) {
+                        showMessage('スタッフのシフト時間外には移動できません', 'warning');
+                        return;
+                    }
+                    
+                    console.log('予約ドロップ:', appointmentId, staffId, timeSlot);
+                    
+                    // 予約枠のドロップ位置から時間を計算
+                    const cellTop = $(this).offset().top;
+                    const dropTop = ui.offset.top;
+                    const cellHeight = $(this).height();
+                    const minutesPerCell = 30;
+                    const minutesFromTop = Math.round((dropTop - cellTop) / cellHeight * minutesPerCell);
+                    
+                    // 時間を調整（15分単位に丸める）
+                    const roundedMinutes = Math.floor(minutesFromTop / 15) * 15;
+                    
+                    // 時間スロットの時間に分を加える
+                    const [hours, minutes] = timeSlot.split(':').map(Number);
+                    const newMinutes = parseInt(minutes) + roundedMinutes;
+                    const adjustedHours = parseInt(hours) + Math.floor(newMinutes / 60);
+                    const adjustedMinutes = newMinutes % 60;
+                    
+                    // 新しい時間を00:00形式で生成
+                    const newTime = adjustedHours.toString().padStart(2, '0') + ':' + 
+                                   adjustedMinutes.toString().padStart(2, '0');
+                    
+                    console.log('新しい時間を計算:', newTime);
+                    
+                    // 確認ダイアログを表示
+                    const appointmentType = ui.draggable.hasClass('task') ? '業務' : '予約';
+                    const confirmMessage = `${appointmentType}を ${newTime} に移動しますか？`;
+                    
+                    if (confirm(confirmMessage)) {
+                        // APIリクエストで予約時間を更新
+                        updateAppointmentTime(appointmentId, staffId, newTime);
+                    } else {
+                        // キャンセルされた場合は元の位置に戻す
+                        setTimeout(() => {
+                            location.reload(); // 簡易的な解決策として再読み込み
+                        }, 100);
+                    }
+                }
+            });
+            
+            console.log('ドラッグ＆ドロップ機能の初期化完了');
+        } catch (e) {
+            console.error('ドラッグ＆ドロップ初期化エラー:', e);
+        }
+    } else {
+        console.error('jQuery または jQuery UI が読み込まれていません');
+    }
+}
+
+// サービスデータ取得関数（グローバルスコープで定義）
+function loadServices() {
+    console.log('サービスデータ取得開始');
+    
+    fetch('api/services.php')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP エラー: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        const serviceSelect = document.getElementById('service_id');
+        if (!serviceSelect) {
+            console.error('service_idセレクト要素が見つかりません');
+            return;
+        }
+        
+        serviceSelect.innerHTML = '<option value="">選択してください</option>';
+        
+        // APIから返されるデータ形式に合わせて処理
+        // データが配列として直接返される場合
+        if (Array.isArray(data)) {
+            data.forEach(service => {
+                const option = document.createElement('option');
+                option.value = service.service_id;
+                option.textContent = service.name;
+                serviceSelect.appendChild(option);
+            });
+        } 
+        // データがdata.dataに格納されている場合
+        else if (data.data && Array.isArray(data.data)) {
+            data.data.forEach(service => {
+                const option = document.createElement('option');
+                option.value = service.service_id;
+                option.textContent = service.name;
+                serviceSelect.appendChild(option);
+            });
+        }
+    })
+    .catch(error => {
+        console.error('サービスデータ取得エラー:', error);
+        showMessage('サービスデータ取得エラーが発生しました', 'error');
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('予約台帳JS初期化開始');
+    
+    // デバッグ - 要素の存在確認
+    const timeTable = document.querySelector('.timetable');
+    if (timeTable) {
+        console.log('タイムテーブルを検出しました');
+    } else {
+        console.error('タイムテーブルが見つかりません');
+        return; // 重要な要素がない場合は初期化を中止
+    }
+    
+    // 初期化タイミングを少し遅らせて確実にDOM構築後に実行
+    setTimeout(function() {
+        // 現在時刻インジケーターの初期設定
+        updateCurrentTimeIndicator();
+        
+        console.log('予約台帳の初期化が完了しました');
+    }, 100);
+    
+    // ウィンドウリサイズ時の処理
+    let resizeTimer;
+    window.addEventListener('resize', function() {
+        // リサイズ中に何度も実行されないよう、タイマーを使用
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function() {
+            console.log('ウィンドウサイズ変更: 現在時刻インジケーターを更新');
+            updateCurrentTimeIndicator();
+        }, 250);
+    });
+    
+    // 現在時刻のインジケーターを更新する関数
+    function updateCurrentTimeIndicator() {
+        const now = new Date();
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        
+        // 時間を00:00形式に変換
+        const formattedTime = hours.toString().padStart(2, '0') + ':' + 
+                              minutes.toString().padStart(2, '0');
+        
+        // 日付が今日の場合のみ表示
+        const selectedDateElement = document.getElementById('selected-date-value');
+        if (!selectedDateElement) {
+            console.error('selected-date-value要素が見つかりません');
+            return;
+        }
+        
+        const selectedDate = selectedDateElement.value;
+        const today = new Date().toISOString().split('T')[0];
+        
+        console.log('日付比較:', selectedDate, today);
+        
+        if (selectedDate === today) {
+            // 開始時間と終了時間を取得
+            const openingTimeElement = document.getElementById('opening-time');
+            const closingTimeElement = document.getElementById('closing-time');
+            
+            if (!openingTimeElement || !closingTimeElement) {
+                console.error('営業時間要素が見つかりません');
+                return;
+            }
+            
+            const openingTime = openingTimeElement.value;
+            const closingTime = closingTimeElement.value;
+            
+            console.log('営業時間:', openingTime, '～', closingTime);
+            
+            // 営業時間内かどうかを確認
+            if (formattedTime >= openingTime && formattedTime <= closingTime) {
+                // 営業時間開始からの経過分数を計算
+                const [openHours, openMinutes] = openingTime.split(':').map(Number);
+                const openingMinutes = openHours * 60 + openMinutes;
+                const currentMinutes = hours * 60 + minutes;
+                const minutesFromOpening = currentMinutes - openingMinutes;
+                
+                // タイムテーブルのセル高さを取得
+                const timeTableContainer = document.querySelector('.timetable-container');
+                const timeCellElements = document.querySelectorAll('.time-cell');
+                
+                if (!timeTableContainer || timeCellElements.length === 0) {
+                    console.error('タイムテーブル要素が見つかりません');
+                    return;
+                }
+                
+                // タイムテーブルの高さを計算
+                const timeTableHeight = timeTableContainer.querySelector('.timetable').offsetHeight - 
+                                        timeTableContainer.querySelector('thead').offsetHeight;
+                
+                // 営業時間の総分数（9:00〜19:00なら10時間=600分）
+                const totalMinutes = (parseInt(closingTime.split(':')[0]) - parseInt(openingTime.split(':')[0])) * 60 +
+                                    (parseInt(closingTime.split(':')[1]) - parseInt(openingTime.split(':')[1]));
+                
+                // 現在時刻の位置（最上部からのピクセル）を計算
+                const topPosition = (minutesFromOpening / totalMinutes) * timeTableHeight;
+                
+                console.log('現在時刻バー位置計算:', minutesFromOpening, totalMinutes, timeTableHeight, topPosition);
+                
+                // 現在時刻のインジケーターを表示
+                const indicator = document.getElementById('current-time-indicator');
+                const label = document.getElementById('current-time-label');
+                
+                if (!indicator || !label) {
+                    console.error('時間インジケーター要素が見つかりません');
+                    return;
+                }
+                
+                // テーブルの幅を取得して、インジケーターの幅を設定
+                const tableWidth = timeTableContainer.querySelector('.timetable').scrollWidth;
+                
+                indicator.classList.add('current-time-indicator');
+                indicator.style.display = 'block';
+                indicator.style.top = `${topPosition}px`;
+                indicator.style.width = `${tableWidth}px`; // テーブルの幅に合わせる
+                
+                label.style.display = 'block';
+                label.style.top = `${topPosition}px`;
+                label.textContent = formattedTime;
+                
+                console.log('現在時刻バーを表示しました', '幅:', tableWidth);
+            } else {
+                // 営業時間外の場合は非表示
+                const indicator = document.getElementById('current-time-indicator');
+                const label = document.getElementById('current-time-label');
+                
+                if (indicator && label) {
+                    indicator.style.display = 'none';
+                    label.style.display = 'none';
+                    console.log('営業時間外のため現在時刻バーを非表示');
+                }
+            }
+        } else {
+            // 選択日が今日でない場合は非表示
+            const indicator = document.getElementById('current-time-indicator');
+            const label = document.getElementById('current-time-label');
+            
+            if (indicator && label) {
+                indicator.style.display = 'none';
+                label.style.display = 'none';
+                console.log('選択日が今日ではないため現在時刻バーを非表示');
+            }
+        }
+    }
+    
+    // 1分ごとに現在時刻インジケーターを更新
+    setInterval(updateCurrentTimeIndicator, 60000);
+
+    // ページロード時に機能を初期化
+    setTimeout(initializeAppointmentDraggable, 500);
+
+    // ウィンドウの完全読み込み後に再度初期化
+    $(window).on('load', function() {
+        setTimeout(initializeAppointmentDraggable, 1000);
+    });
+    
+    // 予約モーダルを開く関数（引数にtypeを追加）
+    function openAppointmentModal(staffId, timeSlot, type = 'customer') {
+        // スタッフと時間をフォームにセット
+        $('#staff_id').val(staffId);
+        $('#start_time').val(timeSlot);
+        
+        // 30分後の終了時間を計算
+        const [hours, minutes] = timeSlot.split(':').map(Number);
+        
+        let endHours = hours;
+        let endMinutes = minutes + 30;
+        
+        if (endMinutes >= 60) {
+            endHours += 1;
+            endMinutes -= 60;
+        }
+        
+        const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+        $('#end_time').val(endTime);
+        
+        // タイプに応じてフォームの表示を切り替え
+        $('#appointment_type').val(type);
+        if (type === 'customer') {
+            $('.modal-title').text('予約追加');
+            $('#customer_section').show();
+            $('#task_section').hide();
+        } else {
+            $('.modal-title').text('業務追加');
+            $('#customer_section').hide();
+            $('#task_section').show();
+        }
+        
+        // モーダルを表示
+        $('#addAppointmentModal').modal('show');
+    }
+    
+    // 予約追加ボタンのクリックイベント
+    $('#addAppointmentBtn').click(function() {
+        $('#appointment_type').val('customer');
+        $('.modal-title').text('予約追加');
+        $('#customer_section').show();
+        $('#task_section').hide();
+        $('#addAppointmentModal').modal('show');
+    });
+    
+    // 業務追加ボタンのクリックイベント
+    $('#addTaskBtn').click(function() {
+        $('#appointment_type').val('task');
+        $('.modal-title').text('業務追加');
+        $('#customer_section').hide();
+        $('#task_section').show();
+        $('#addAppointmentModal').modal('show');
+    });
+    
+    // 更新ボタンのクリックイベント
+    $('#refreshBtn').click(function() {
+        location.reload();
+    });
+    
+    // 印刷ボタンのクリックイベント
+    $('#printBtn').click(function() {
+        window.print();
+    });
+    
+    // モーダルダイアログの制御
+    setupModalControls();
+    
+    // 時間セルのクリックイベント
+    setupTimeSlotEvents();
+    
+    // スマホ対応の初期化処理
+    initMobileView();
+    
+    // 初期データ読み込み
+    try {
+        // データの初期読み込み
+        loadCustomers();
+        loadServices();
+        
+        // スタッフ表示を最適化（確実に実行されるようにする）
+        setTimeout(function() {
+            optimizeStaffDisplay();
+        }, 300);
+    } catch (e) {
+        console.error('初期データ読み込みエラー:', e);
+    }
+    
+    // 他の初期化が完了した後の処理
+    setTimeout(function() {
+        // フルスクリーン機能を削除
+        // initFullscreenFeature();
+    }, 500);
+    
+    // スマホ対応の初期化
+    function initMobileView() {
+        // スマホ用ボタンのイベント設定
+        $('#addAppointmentBtnMobile').on('click', function() {
+            $('#addAppointmentBtn').click();
+        });
+        
+        $('#addTaskBtnMobile').on('click', function() {
+            $('#addTaskBtn').click();
+        });
+        
+        $('#refreshBtnMobile').on('click', function() {
+            $('#refreshBtn').click();
+        });
+        
+        $('#printBtnMobile').on('click', function() {
+            $('#printBtn').click();
+        });
+        
+        $('#settingsBtnMobile').on('click', function() {
+            $('#settingsBtn').click();
+        });
+        
+        // 表示モード切替ボタンの設定
+        setupViewModeToggle();
+        
+        // スマホでの3スタッフ表示の最適化
+        optimizeStaffDisplay();
+    }
+    
+    // 表示モード切替機能
+    function setupViewModeToggle() {
+        const $table = $('.timetable');
+        const $badge = $('.view-mode-badge');
+        const $button = $('#viewModeToggle');
+        const $icon = $button.find('i');
+        
+        // ローカルストレージから前回の表示モードを取得
+        const savedViewMode = localStorage.getItem('appointmentViewMode');
+        if (savedViewMode === 'full') {
+            $table.removeClass('compact-view').addClass('full-view');
+            $badge.text('全体表示');
+            $icon.removeClass('fa-expand-alt').addClass('fa-compress-alt');
+        }
+        
+        // 切替ボタンのクリックイベント
+        $button.on('click', function() {
+            if ($table.hasClass('compact-view')) {
+                // 標準表示から全体表示へ
+                $table.removeClass('compact-view').addClass('full-view');
+                $badge.text('全体表示');
+                $icon.removeClass('fa-expand-alt').addClass('fa-compress-alt');
+                localStorage.setItem('appointmentViewMode', 'full');
+            } else {
+                // 全体表示から標準表示へ
+                $table.removeClass('full-view').addClass('compact-view');
+                $badge.text('標準表示');
+                $icon.removeClass('fa-compress-alt').addClass('fa-expand-alt');
+                localStorage.setItem('appointmentViewMode', 'compact');
+            }
+        });
+    }
+    
+    // スタッフ表示の最適化（1人・2人はスマホの幅に合わせ、3人以上はスクロール）
+    function optimizeStaffDisplay() {
+        const staffCount = $('.staff-header').length;
+        const timeColWidth = 60; // 時間列の幅（px）は固定
+        const staffColWidth = 120; // 基本のスタッフ列幅（3人以上の場合に使用）
+        
+        console.log('スタッフ表示の最適化を開始: スタッフ数=', staffCount);
+        
+        // スマホでの最適化
+        if (window.innerWidth <= 767) {
+            if (staffCount === 1) {
+                // スタッフ1人の場合：時間列は固定、スタッフ列は残りの幅全体に
+                console.log('スタッフ1人用の表示に最適化');
+                
+                // 画面幅を取得
+                const screenWidth = window.innerWidth;
+                
+                // 時間列は固定、スタッフ列は残りの幅全て
+                // テーブル全体を画面幅いっぱいに
+                $('.timetable').css({
+                    'width': '100%',
+                    'min-width': '0'
+                });
+                
+                // 時間列は固定幅
+                $('.timetable-time').css('width', timeColWidth + 'px');
+                
+                // スタッフ列は残りの幅を使用（画面幅 - 時間列幅）
+                const staffWidth = screenWidth - timeColWidth;
+                $('.staff-header').css('width', staffWidth + 'px');
+                $('.time-cell').css('width', staffWidth + 'px');
+                
+            } else if (staffCount === 2) {
+                // スタッフ2人の場合：時間列は固定、残りを2人で分割
+                console.log('スタッフ2人用の表示に最適化');
+                
+                // 画面幅を取得
+                const screenWidth = window.innerWidth;
+                
+                // テーブル全体を画面幅いっぱいに
+                $('.timetable').css({
+                    'width': '100%',
+                    'min-width': '0'
+                });
+                
+                // 時間列は固定幅
+                $('.timetable-time').css('width', timeColWidth + 'px');
+                
+                // スタッフ列2人で残りの幅を均等に分割
+                const totalStaffWidth = screenWidth - timeColWidth;
+                const eachStaffWidth = totalStaffWidth / 2;
+                
+                // 各スタッフ列に幅を設定
+                $('.staff-header').css('width', eachStaffWidth + 'px');
+                $('.time-cell').css('width', eachStaffWidth + 'px');
+                
+            } else if (staffCount >= 3) {
+                // 3人以上の場合：横スクロールを有効に
+                console.log('スタッフ数が3人以上のためスクロール表示に最適化');
+                
+                // 横スクロールのため固定幅を設定
+                // 時間列 + 3人分のスタッフ列を表示し、それ以降はスクロールで見る
+                const tableWidth = timeColWidth + (staffColWidth * Math.min(staffCount, 3));
+                
+                $('.timetable').css({
+                    'width': tableWidth + 'px',
+                    'min-width': tableWidth + 'px'
+                });
+                
+                // 時間列は固定幅
+                $('.timetable-time').css('width', timeColWidth + 'px');
+                
+                // スタッフ列の幅を固定
+                $('.staff-header').css('width', staffColWidth + 'px');
+                $('.time-cell').css('width', staffColWidth + 'px');
+            }
+        } else {
+            // PC表示の場合は通常のレスポンシブ表示に戻す
+            $('.timetable').css({
+                'width': '100%',
+                'min-width': ''
+            });
+            $('.staff-header').css({
+                'width': '',
+                'min-width': '150px'
+            });
+            $('.time-cell').css({
+                'width': '',
+                'min-width': ''
+            });
+            $('.timetable-time').css('width', '');
+        }
+        
+        // 画面サイズ変更時の再調整
+        $(window).off('resize.staffDisplay').on('resize.staffDisplay', function() {
+            optimizeStaffDisplay();
+        });
+    }
+    
+    // 顧客リスト取得
+    function loadCustomers() {
+        console.log('顧客データ取得開始');
+        
+        fetch('api/customers.php')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP エラー: ${response.status} ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+                const customerSelect = document.getElementById('customer_id');
+                if (!customerSelect) {
+                    console.error('customer_idセレクト要素が見つかりません');
+                    return;
+                }
+                
+                customerSelect.innerHTML = '<option value="">選択してください</option>';
+                
+            // APIから返されるデータ形式に合わせて処理
+            // データが配列として直接返される場合
+            if (Array.isArray(data)) {
+                data.forEach(customer => {
+                    const option = document.createElement('option');
+                    option.value = customer.customer_id;
+                    option.textContent = `${customer.last_name} ${customer.first_name}`;
+                    customerSelect.appendChild(option);
+                });
+            } 
+            // データがdata.dataに格納されている場合
+            else if (data.data && Array.isArray(data.data)) {
+                data.data.forEach(customer => {
+                    const option = document.createElement('option');
+                    option.value = customer.customer_id;
+                    option.textContent = `${customer.last_name} ${customer.first_name}`;
+                    customerSelect.appendChild(option);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('顧客データ取得エラー:', error);
+            showMessage('顧客データ取得エラーが発生しました', 'error');
+        });
+    }
+    
+    // 予約アイテムのクリックイベント - 動的に生成される要素に対応するよう変更
+    // 前のイベントを削除してから再度バインド
+    $(document).off('click', '.appointment-item').on('click', '.appointment-item', function(e) {
+        console.log('予約/業務アイテムがクリックされました!');
+        console.log('クリックされた要素:', this);
+        console.log('要素のクラス:', $(this).attr('class'));
+        console.log('予約ID:', $(this).data('appointment-id'));
+        console.log('スタッフID:', $(this).data('staff-id'));
+        
+        e.preventDefault(); // デフォルト動作を防止
+        e.stopPropagation(); // 親要素へのイベント伝播を防止
+        
+        try {
+            // 既存の選択をクリア
+            $('.time-cell').removeClass('selected-cell');
+            $('.appointment-type-menu').remove();
+            
+            // すべての予約からハイライトを削除
+            $('.appointment-item').removeClass('appointment-active');
+            
+            // この予約をハイライト
+            $(this).addClass('appointment-active');
+            
+            // 視覚的フィードバック（パルスエフェクト）
+            $(this).addClass('appointment-pulse');
+            setTimeout(() => {
+                $(this).removeClass('appointment-pulse');
+            }, 500);
+            
+            // 予約の詳細情報を取得
+            const appointmentId = $(this).data('appointment-id');
+            const customerName = $(this).find('.appointment-customer').text();
+            const serviceName = $(this).find('.appointment-service').text();
+            const appointmentTime = $(this).data('start-time') || $(this).find('.appointment-time').text();
+            const staffId = $(this).closest('td').data('staff-id') || $(this).data('staff-id'); 
+            const staffName = $(this).closest('td').prevAll('th.staff-header').first().find('.staff-name').text() || '不明なスタッフ';
+            const status = typeof getAppointmentStatus === 'function' ? 
+                getAppointmentStatus($(this)) : 
+                ($(this).hasClass('confirmed') ? '確定済み' : $(this).hasClass('cancelled') ? 'キャンセル' : '予約中');
+            const appointmentType = $(this).hasClass('task') ? 'task' : 'customer';
+            
+            console.log('取得した詳細情報:',
+                '\n  ID:', appointmentId,
+                '\n  顧客名:', customerName,
+                '\n  サービス名:', serviceName,
+                '\n  時間:', appointmentTime,
+                '\n  スタッフID:', staffId,
+                '\n  スタッフ名:', staffName,
+                '\n  ステータス:', status,
+                '\n  タイプ:', appointmentType
+            );
+            
+            if (!appointmentId) {
+                console.error('予約IDが取得できません。data-appointment-id属性が設定されていない可能性があります。');
+                alert('予約情報が正しく取得できませんでした。ページを更新してもう一度お試しください。');
+                return;
+            }
+            
+            // 直接モーダルを開く
+            $('#appointmentDetailsModal .modal-title').text(appointmentType === 'task' ? '業務詳細' : '予約詳細');
+            
+            let statusBadgeClass = 'badge-primary';
+            if (status === '確定済み') statusBadgeClass = 'badge-success';
+            if (status === 'キャンセル') statusBadgeClass = 'badge-danger';
+            if (status === '無断キャンセル') statusBadgeClass = 'badge-secondary';
+            
+            const detailsHTML = `
+                <div class="appointment-details-container">
+                    <div class="detail-row">
+                        <span class="detail-label">ID:</span>
+                        <span class="detail-value">${appointmentId}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">${appointmentType === 'task' ? '業務名:' : '顧客名:'}</span>
+                        <span class="detail-value">${customerName || '未設定'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">${appointmentType === 'task' ? '内容:' : 'サービス:'}</span>
+                        <span class="detail-value">${serviceName || '未設定'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">${appointmentType === 'task' ? '時間:' : '予約時間:'}</span>
+                        <span class="detail-value">${appointmentTime || '未設定'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">担当者:</span>
+                        <span class="detail-value">${staffName || '未設定'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">ステータス:</span>
+                        <span class="detail-value"><span class="badge ${statusBadgeClass}">${status}</span></span>
+                    </div>
+                </div>
+            `;
+            
+            $('#appointmentDetailsModal .modal-body').html(detailsHTML);
+            
+            // 操作ボタンの設定
+            $('#appointmentDetailsModal .modal-footer').html(`
+                <button type="button" class="btn btn-primary edit-appointment-btn" data-appointment-id="${appointmentId}">
+                    <i class="fas fa-edit"></i> 編集
+                </button>
+                <button type="button" class="btn btn-danger delete-appointment-btn" data-appointment-id="${appointmentId}">
+                    <i class="fas fa-trash"></i> 削除
+                </button>
+                ${appointmentType === 'task' ? '' : `
+                <button type="button" class="btn btn-success confirm-appointment-btn" data-appointment-id="${appointmentId}">
+                    <i class="fas fa-check"></i> 確定
+                </button>
+                <button type="button" class="btn btn-warning cancel-appointment-btn" data-appointment-id="${appointmentId}">
+                    <i class="fas fa-times"></i> キャンセル
+                </button>
+                `}
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">閉じる</button>
+            `);
+            
+            // 予約詳細モーダルを表示
+            $('#appointmentDetailsModal').modal('show');
+            
+            // 各ボタンのイベントを設定
+            setupAppointmentActionButtons();
+            
+            return false; // イベント処理を確実に終了
+        } catch (e) {
+            console.error('予約項目クリック処理中のエラー:', e);
+            alert('予約の詳細を表示できませんでした。ページを更新してください。');
+        }
+    });
+    
+    // 予約詳細モーダルのボタンイベント設定
+    function setupAppointmentActionButtons() {
+        console.log('予約詳細モーダルのボタンイベントを設定します');
+        
+        // イベントハンドラを再設定する前に、既存のハンドラをすべて削除
+        $('#appointmentDetailsModal .modal-footer').off('click', '.edit-appointment-btn');
+        $('#appointmentDetailsModal .modal-footer').off('click', '.delete-appointment-btn');
+        $('#appointmentDetailsModal .modal-footer').off('click', '.confirm-appointment-btn');
+        $('#appointmentDetailsModal .modal-footer').off('click', '.cancel-appointment-btn');
+        
+        // 編集ボタンのイベント
+        $('#appointmentDetailsModal .modal-footer').on('click', '.edit-appointment-btn', function() {
+            const appointmentId = $(this).data('appointment-id');
+            const isTask = $(this).data('is-task') === 'true';
+            
+            console.log(`編集ボタンがクリックされました: ID=${appointmentId}, タイプ=${isTask ? '業務' : '予約'}`);
+            
+            if (isTask) {
+                prepareTaskEdit(appointmentId);
+            } else {
+                prepareAppointmentEdit(appointmentId);
+            }
+            
+            // モーダルを閉じる
+            $('#appointmentDetailsModal').modal('hide');
+        });
+        
+        // 削除ボタンのイベント
+        $('#appointmentDetailsModal .modal-footer').on('click', '.delete-appointment-btn', function() {
+            const appointmentId = $(this).data('appointment-id');
+            const isTask = $(this).data('is-task') === 'true';
+            
+            console.log(`削除ボタンがクリックされました: ID=${appointmentId}, タイプ=${isTask ? '業務' : '予約'}`);
+            
+            // 削除処理を実行
+            deleteAppointmentOrTask(appointmentId, isTask);
+        });
+        
+        // 確定ボタンのイベント
+        $('#appointmentDetailsModal .modal-footer').on('click', '.confirm-appointment-btn', function() {
+            const appointmentId = $(this).data('appointment-id');
+            
+            console.log(`確定ボタンがクリックされました: ID=${appointmentId}`);
+            
+            // 確定処理
+            updateAppointmentStatusDirectly(appointmentId, 'confirmed');
+            
+            // モーダルを閉じる
+            $('#appointmentDetailsModal').modal('hide');
+        });
+        
+        // キャンセルボタンのイベント
+        $('#appointmentDetailsModal .modal-footer').on('click', '.cancel-appointment-btn', function() {
+            const appointmentId = $(this).data('appointment-id');
+            
+            console.log(`キャンセルボタンがクリックされました: ID=${appointmentId}`);
+            
+            // キャンセル処理
+            updateAppointmentStatusDirectly(appointmentId, 'cancelled');
+            
+            // モーダルを閉じる
+            $('#appointmentDetailsModal').modal('hide');
+        });
+    }
+    
+    // 予約または業務を削除する関数
+    function deleteAppointmentOrTask(id, isTask = false) {
+        console.log(`削除処理を開始: ID=${id}, タイプ=${isTask ? '業務' : '予約'}`);
+        
+        // 確認ダイアログを表示
+        if (!confirm(`この${isTask ? '業務' : '予約'}を削除してもよろしいですか？`)) {
+            console.log('削除がキャンセルされました');
+            return;
+        }
+        
+        // ローディング表示
+        showLoading();
+        
+        // CSRFトークンを取得
+        const csrfToken = $('#csrf_token').val();
+        if (!csrfToken) {
+            console.error('CSRFトークンが取得できません');
+            hideLoading();
+            showMessage('セキュリティトークンが取得できませんでした', 'error');
+            return;
+        }
+        
+        console.log('CSRFトークン:', csrfToken);
+        
+        // 削除APIのURLを設定
+        const apiUrl = isTask ? 'ajax/task_handler.php' : 'api/appointments/delete_appointment.php';
+        
+        // 送信データを設定
+        const postData = isTask ? 
+            { action: 'delete', task_id: id, csrf_token: csrfToken } : 
+            { appointment_id: id, csrf_token: csrfToken };
+        
+        console.log('削除リクエスト:', { url: apiUrl, data: postData });
+        
+        // APIリクエスト
+        $.ajax({
+            url: apiUrl,
+            type: 'POST',
+            data: postData,
+            dataType: 'json',
+            success: function(response) {
+                hideLoading();
+                console.log('削除API応答:', response);
+                
+                // レスポンス処理
+                handleDeleteResponse(response, isTask, id);
+            },
+            error: function(xhr, status, error) {
+                hideLoading();
+                console.error('削除API通信エラー:', xhr.responseText);
+                
+                let errorMsg = '通信エラーが発生しました';
+                try {
+                    const jsonResponse = JSON.parse(xhr.responseText);
+                    if (jsonResponse && jsonResponse.message) {
+                        errorMsg = jsonResponse.message;
+                    }
+                } catch (e) {
+                    if (xhr.responseText) {
+                        errorMsg = xhr.responseText;
+                    }
+                }
+                
+                showMessage(`削除に失敗しました: ${errorMsg}`, 'error');
+            }
+        });
+    }
+    
+    // 削除APIのレスポンスを処理する関数
+    function handleDeleteResponse(response, isTask, appointmentId) {
+        console.log(`削除レスポンス処理: ID=${appointmentId}, タイプ=${isTask ? '業務' : '予約'}`);
+        
+        if (response.success) {
+            // 成功メッセージを表示
+            const message = isTask ? '業務が正常に削除されました' : '予約が正常に削除されました';
+            showMessage(message, 'success');
+            
+            // モーダルを閉じる
+            $('#appointmentDetailsModal').modal('hide');
+            
+            // 該当する予約/業務要素を削除
+            const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+            if ($appointmentEl.length > 0) {
+                $appointmentEl.fadeOut(300, function() {
+                    $(this).remove();
+                });
+            }
+            
+            // 2秒後にページを再読み込み
+            setTimeout(function() {
+                location.reload();
+            }, 2000);
+        } else {
+            // エラー時の処理
+            const errorMsg = (response && response.message) ? response.message : '削除に失敗しました';
+            showMessage(`エラー: ${errorMsg}`, 'error');
+        }
+    }
+    
+    // 予約編集準備関数
+    function prepareAppointmentEdit(appointmentId) {
+        showLoading();
+        
+        try {
+            // 予約要素からデータを取得
+            const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+            
+            if ($appointmentEl.length === 0) {
+                console.error('予約要素が見つかりません。ID:', appointmentId);
+                hideLoading();
+                showMessage('予約情報を取得できませんでした。', 'error');
+                return;
+            }
+            
+            console.log('予約編集を開始: 要素から直接データを取得します');
+            
+            // 予約タイプを判定
+            const isTask = $appointmentEl.hasClass('task');
+            
+            // フォームをリセット
+            $('#addAppointmentForm')[0].reset();
+            
+            // 編集モードを設定
+            $('#appointment_action').val('edit');
+            $('#appointment_id').val(appointmentId);
+            
+            // 担当者IDを取得
+            const staffId = $appointmentEl.closest('td').data('staff-id') || $appointmentEl.data('staff-id');
+            
+            // 時間情報を取得（フォーマットの違いに注意）
+            let startTime = '';
+            let endTime = '';
+            
+            // 開始時間と終了時間を取得（data属性から）
+            if ($appointmentEl.data('start-time')) {
+                startTime = $appointmentEl.data('start-time');
+                endTime = $appointmentEl.data('end-time') || '';
+                console.log('data属性から時間を取得:', startTime, endTime);
+            } else if ($appointmentEl.find('.appointment-time').length > 0) {
+                // テキストから時間を抽出（例："10:00～11:00" → "10:00"と"11:00"に分ける）
+                const timeText = $appointmentEl.find('.appointment-time').text().trim();
+                console.log('時間テキスト:', timeText);
+                
+                // 日本語の区切り文字「～」または「-」で分割
+                if (timeText.includes('～')) {
+                    const timeParts = timeText.split('～').map(part => part.trim());
+                    startTime = timeParts[0];
+                    endTime = timeParts[1];
+                } else if (timeText.includes('-')) {
+                    const timeParts = timeText.split('-').map(part => part.trim());
+                    startTime = timeParts[0];
+                    endTime = timeParts[1];
+                } else {
+                    // 時間が単一の場合（フォーマットが異なる場合）
+                    startTime = timeText;
+                    // 終了時間がない場合、30分後を設定
+                    endTime = calculateEndTime(startTime, 30);
+                }
+                console.log('テキストから抽出した時間:', startTime, endTime);
+            }
+            
+            // 時間が取得できなかった場合のフォールバック
+            if (!startTime) {
+                // 現在の時間セルから時間を取得
+                const timeSlot = $appointmentEl.closest('td').data('time-slot');
+                if (timeSlot) {
+                    startTime = timeSlot;
+                    endTime = calculateEndTime(startTime, 30);
+                    console.log('時間セルから取得した時間:', startTime, endTime);
+                } else {
+                    // 最終手段としてデフォルト値を設定
+                    const currentHour = new Date().getHours();
+                    const roundedHour = currentHour < 9 ? 9 : (currentHour > 18 ? 9 : currentHour);
+                    startTime = roundedHour.toString().padStart(2, '0') + ':00';
+                    endTime = calculateEndTime(startTime, 30);
+                    console.log('デフォルト時間を設定:', startTime, endTime);
+                }
+            }
+            
+            if (!endTime) {
+                endTime = calculateEndTime(startTime, 30);
+                console.log('終了時間を計算:', endTime);
+            }
+            
+            // 時間形式を確認して修正（HH:MM形式に統一）
+            startTime = ensureTimeFormat(startTime);
+            endTime = ensureTimeFormat(endTime);
+            console.log('最終的な時間設定:', startTime, endTime);
+            
+            // 時間形式を確認する関数
+            function ensureTimeFormat(timeStr) {
+                // 空の場合は処理しない
+                if (!timeStr) return timeStr;
+                
+                // 秒を含む場合は削除（HH:MM:SS → HH:MM）
+                if (timeStr.length > 5 && timeStr.indexOf(':') !== timeStr.lastIndexOf(':')) {
+                    timeStr = timeStr.substring(0, 5);
+                }
+                
+                // 形式が正しいか確認（HH:MM）
+                const timePattern = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
+                if (!timePattern.test(timeStr)) {
+                    console.warn('不正な時間形式:', timeStr);
+                    // 不正な形式の場合はデフォルト値を返す
+                    return '09:00';
+                }
+                
+                return timeStr;
+            }
+            
+            // 顧客名/タスク名とサービス名/説明を取得
+            const customerOrTaskName = $appointmentEl.find('.appointment-customer').text().trim();
+            const serviceOrDescription = $appointmentEl.find('.appointment-service').text().trim();
+            
+            // UIを予約タイプに応じて調整
+            $('#appointment_type').val(isTask ? 'task' : 'customer');
+            
+            if (isTask) {
+                $('.modal-title').text('業務編集');
+                $('#customer_section').hide();
+                $('#task_section').show();
+                
+                // 業務情報をセット - task_nameフィールドは存在しないので、task_descriptionに直接セット
+                $('#task_description').val(serviceOrDescription || customerOrTaskName || '未設定の業務');
+                console.log('業務タイプの編集: 業務内容=', $('#task_description').val());
+            } else {
+                $('.modal-title').text('予約編集');
+                $('#customer_section').show();
+                $('#task_section').hide();
+                
+                // 顧客とサービスを名前から選択
+                findAndSelectCustomerByName(customerOrTaskName);
+                findAndSelectServiceByName(serviceOrDescription);
+            }
+            
+            // 共通フィールド
+            $('#staff_id').val(staffId);
+            $('#start_time').val(startTime);
+            $('#end_time').val(endTime);
+            
+            // モーダルを表示
+            $('#addAppointmentModal').modal('show');
+        } catch (e) {
+            console.error('予約編集準備中のエラー:', e);
+            hideLoading();
+            showMessage(`予約情報の取得中にエラーが発生しました: ${e.message}`, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+    
+    // 名前から顧客を選択
+    function findAndSelectCustomerByName(customerName) {
+        if (!customerName) return;
+        
+        const $select = $('#customer_id');
+        let found = false;
+        
+        // 各オプションをチェック
+        $select.find('option').each(function() {
+            if ($(this).text() === customerName.trim()) {
+                $select.val($(this).val());
+                found = true;
+                return false; // eachのループを抜ける
+            }
+        });
+        
+        if (!found) {
+            console.log('顧客名に一致する選択肢が見つかりません:', customerName);
+        }
+    }
+    
+    // 名前からサービスを選択
+    function findAndSelectServiceByName(serviceName) {
+        if (!serviceName) return;
+        
+        const $select = $('#service_id');
+        let found = false;
+        
+        // 各オプションをチェック
+        $select.find('option').each(function() {
+            if ($(this).text() === serviceName.trim()) {
+                $select.val($(this).val());
+                found = true;
+                return false; // eachのループを抜ける
+            }
+        });
+        
+        if (!found) {
+            console.log('サービス名に一致する選択肢が見つかりません:', serviceName);
+        }
+    }
+    
+    // 予約削除の実装
+    function deleteAppointmentDirectly(appointmentId) {
+        showLoading();
+        
+        // 入力値の検証
+        if (!appointmentId || isNaN(parseInt(appointmentId))) {
+            console.error('無効な予約ID:', appointmentId);
+            hideLoading();
+            showMessage('無効な予約IDです。操作をやり直してください。', 'error');
+            return;
+        }
+        
+        // 数値型に変換（サーバー側でintとして扱われるため）
+        appointmentId = parseInt(appointmentId, 10);
+        
+        // CSRFトークン要素の確認
+        const csrfElement = document.getElementById('csrf_token');
+        if (!csrfElement) {
+            console.error('CSRF トークン要素が見つかりません');
+            hideLoading();
+            showMessage('セキュリティトークンが見つかりません', 'error');
+            return;
+        }
+        
+        const csrfToken = csrfElement.value;
+        
+        // 予約タイプを判定（業務か一般予約か）
+        const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+        const isTask = $appointmentEl.hasClass('task');
+        
+        // APIエンドポイントのURL
+        const apiUrl = 'api/appointments/delete_appointment.php';
+        
+        // JSONデータの作成（POSTボディとして送信するためのJSON）
+        const requestData = {
+            appointment_id: appointmentId,
+            is_task: isTask ? 1 : 0,
+            csrf_token: csrfToken
+        };
+        
+        console.log('削除リクエスト詳細:', {
+            'appointment_id': appointmentId,
+            'id_value': appointmentId,
+            'id_type': typeof appointmentId,
+            'is_task': isTask,
+            'endpoint': apiUrl,
+            'request_data': requestData
+        });
+        
+        // シンプルな方法でJSON形式のリクエストを送信
+        try {
+            $.ajax({
+                url: apiUrl,
+                method: 'POST',
+                contentType: 'application/json',  // JSONデータを送信することを明示
+                data: JSON.stringify(requestData), // オブジェクトをJSON文字列に変換
+                success: function(response) {
+                    handleDeleteResponse(response, isTask, appointmentId);
+                },
+                error: function(xhr, status, error) {
+                    hideLoading();
+                    console.error('API通信エラー:', status, error);
+                    console.error('応答テキスト:', xhr.responseText);
+                    
+                    let errorMsg = '通信エラーが発生しました';
+                    try {
+                        // JSON形式のエラーメッセージがある場合は解析
+                        const jsonResponse = JSON.parse(xhr.responseText);
+                        if (jsonResponse && jsonResponse.message) {
+                            errorMsg = `エラー: ${jsonResponse.message}`;
+                        }
+                    } catch (e) {
+                        // 解析できない場合は応答テキストをそのまま使用
+                        if (xhr.responseText) {
+                            errorMsg = `エラー: ${xhr.responseText}`;
+                        }
+                    }
+                    
+                    showMessage(errorMsg, 'error');
+                }
+            });
+        } catch (e) {
+            hideLoading();
+            console.error('削除処理中の例外:', e);
+            showMessage(`予期しないエラーが発生しました: ${e.message}`, 'error');
+        }
+    }
+    
+    // レスポンス処理を共通化した関数
+    function handleDeleteResponse(response, isTask, appointmentId) {
+        hideLoading();
+        console.log('API応答:', response);
+        
+        if (response && response.success) {
+            // 成功時の処理
+            showMessage(isTask ? '業務を削除しました' : '予約を削除しました', 'success');
+            
+            // 該当する予約要素を視覚的に削除
+            const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+            if ($appointmentEl && $appointmentEl.length > 0) {
+                $appointmentEl.fadeOut(300, function() {
+                    $(this).remove();
+                });
+            }
+            
+            // 少し遅延してから画面をリロード
+            setTimeout(function() {
+                location.reload();
+            }, 1000);
+        } else {
+            // エラー時の処理
+            const errorMsg = (response && response.message) ? response.message : '削除に失敗しました';
+            showMessage(`エラー: ${errorMsg}`, 'error');
+            console.error('API エラー応答:', response);
+        }
+    }
+    
+    // 予約ステータス更新
+    function updateAppointmentStatusDirectly(appointmentId, status) {
+        showLoading();
+        
+        // CSRFトークン要素の確認
+        const csrfElement = document.getElementById('csrf_token');
+        if (!csrfElement) {
+            console.error('CSRF トークン要素が見つかりません');
+            hideLoading();
+            showMessage('セキュリティトークンが見つかりません', 'error');
+            return;
+        }
+        
+        const csrfToken = csrfElement.value;
+        
+        // APIエンドポイントのURL
+        const apiUrl = 'api/appointments/update_status.php';
+        
+        $.ajax({
+            url: apiUrl,
+            method: 'POST',
+            data: {
+                appointment_id: appointmentId,
+                status: status,
+                csrf_token: csrfToken
+            },
+            success: function(response) {
+                hideLoading();
+                console.log('ステータス更新応答:', response);
+                
+                if (response && response.success) {
+                    // 成功時の処理
+                    let message = '';
+                    if (status === 'confirmed') {
+                        message = '予約を確定しました';
+                    } else if (status === 'cancelled') {
+                        message = '予約をキャンセルしました';
+                    } else {
+                        message = 'ステータスを更新しました';
+                    }
+                    
+                    showMessage(message, 'success');
+                    
+                    // 該当する予約要素の状態を視覚的に更新
+                    const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+                    if ($appointmentEl.length > 0) {
+                        $appointmentEl.removeClass('confirmed cancelled');
+                        $appointmentEl.addClass(status);
+                    }
+                    
+                    // 2秒後にページを再読み込み
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    // エラー時の処理
+                    const errorMsg = (response && response.message) ? response.message : 'ステータス更新に失敗しました';
+                    showMessage(`エラー: ${errorMsg}`, 'error');
+                }
+            },
+            error: function(xhr, status, error) {
+                hideLoading();
+                console.error('API通信エラー:', status, error);
+                
+                let errorMsg = '通信エラーが発生しました';
+                try {
+                    const jsonResponse = JSON.parse(xhr.responseText);
+                    if (jsonResponse && jsonResponse.message) {
+                        errorMsg = `エラー: ${jsonResponse.message}`;
+                    }
+                } catch (e) {
+                    if (xhr.responseText) {
+                        errorMsg = `エラー: ${xhr.responseText}`;
+                    }
+                }
+                
+                showMessage(errorMsg, 'error');
+            }
+        });
+    }
+    
+    // 予約の状態を取得する関数
+    function getAppointmentStatus($appointmentEl) {
+        if ($appointmentEl.hasClass('confirmed')) return '確定済み';
+        if ($appointmentEl.hasClass('cancelled')) return 'キャンセル';
+        if ($appointmentEl.hasClass('no-show')) return '無断キャンセル';
+        return '予約中';
+    }
+    
+    // 予約データを取得する関数
+    function fetchAppointmentData(appointmentId) {
+        // 編集準備関数を呼び出す
+        prepareAppointmentEdit(appointmentId);
+    }
+    
+    // 予約ステータス更新のAPI呼び出し
+    function updateAppointmentStatus(appointmentId, status) {
+        showLoading();
+        
+        // CSRFトークン要素の確認
+        const csrfElement = document.getElementById('csrf_token');
+        if (!csrfElement) {
+            console.error('CSRF トークン要素が見つかりません');
+            hideLoading();
+            showMessage('セキュリティトークンが見つかりません', 'error');
+            return;
+        }
+        
+        const csrfToken = csrfElement.value;
+        
+        // APIエンドポイントのURL
+        const apiUrl = 'api/appointments/update_status.php';
+        
+        $.ajax({
+            url: apiUrl,
+            method: 'POST',
+            data: {
+                appointment_id: appointmentId,
+                status: status,
+                csrf_token: csrfToken
+            },
+            success: function(response) {
+                hideLoading();
+                console.log('ステータス更新応答:', response);
+                
+                if (response && response.success) {
+                    // 成功時の処理
+                    let message = '';
+                    if (status === 'confirmed') {
+                        message = '予約を確定しました';
+                    } else if (status === 'cancelled') {
+                        message = '予約をキャンセルしました';
+                    } else {
+                        message = 'ステータスを更新しました';
+                    }
+                    
+                    showMessage(message, 'success');
+                    
+                    // 該当する予約要素の状態を視覚的に更新
+                    const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+                    if ($appointmentEl.length > 0) {
+                        $appointmentEl.removeClass('confirmed cancelled');
+                        $appointmentEl.addClass(status);
+                    }
+                    
+                    // 2秒後にページを再読み込み
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    // エラー時の処理
+                    const errorMsg = (response && response.message) ? response.message : 'ステータス更新に失敗しました';
+                    showMessage(`エラー: ${errorMsg}`, 'error');
+                }
+            },
+            error: function(xhr, status, error) {
+                hideLoading();
+                console.error('API通信エラー:', status, error);
+                
+                let errorMsg = '通信エラーが発生しました';
+                try {
+                    const jsonResponse = JSON.parse(xhr.responseText);
+                    if (jsonResponse && jsonResponse.message) {
+                        errorMsg = `エラー: ${jsonResponse.message}`;
+                    }
+                } catch (e) {
+                    if (xhr.responseText) {
+                        errorMsg = `エラー: ${xhr.responseText}`;
+                    }
+                }
+                
+                showMessage(errorMsg, 'error');
+            }
+        });
+    }
+});
+
+/**
+ * フルスクリーン機能を初期化
+ */
+function initFullscreenFeature() {
+    // フルスクリーン機能を削除
+}
+
+/**
+ * タイムテーブルのみの全画面表示に切り替え
+ */
+function toggleTableFullscreen() {
+    // フルスクリーン機能を削除
+}
+
+// 予約検索ボタンのイベント処理
+$('#search-appointments-btn').on('click', function() {
+    $('#search-appointments-form').submit();
+});
+
+// ページ読み込み時に初期化処理を実行
+$(document).ready(function() {
+    // 予約オプションのテスト表示
+    console.log('ページ読み込み完了、予約台帳を初期化します');
+    
+    // 予約アイテムにホバーエフェクトを追加
+    $('.appointment-item').hover(
+        function() { $(this).addClass('hover'); },
+        function() { $(this).removeClass('hover'); }
+    );
+    
+    // 予約ドラッグ＆ドロップ機能を初期化
+    if (typeof initializeAppointmentDraggable === 'function') {
+        console.log('ドラッグ＆ドロップ機能を初期化します');
+        setTimeout(initializeAppointmentDraggable, 500);
+    }
+    
+    // モーダルダイアログの制御を設定
+    setupModalControls();
+    
+    // 時間セルのクリックイベントを設定
+    setupTimeSlotEvents();
+    
+    // 日付選択のカレンダー表示
+    if ($.fn.datepicker) {
+        $('.datepicker').datepicker({
+            format: 'yyyy-mm-dd',
+            language: 'ja',
+            autoclose: true,
+            todayHighlight: true
+        });
+    }
+    
+    // モーダルの閉じるボタンのイベントハンドラを設定
+    $(document).on('click', '[data-dismiss="modal"]', function(e) {
+        e.preventDefault();
+        console.log('モーダルの閉じるボタンがクリックされました');
+        
+        // 親モーダルを特定して閉じる
+        const $modal = $(this).closest('.modal');
+        if ($modal.length > 0) {
+            console.log('モーダルを閉じます:', $modal.attr('id'));
+            $modal.modal('hide');
+            
+            // バックアップとして直接非表示にする
+            setTimeout(function() {
+                if ($modal.is(':visible')) {
+                    console.log('モーダルが閉じられていないため強制的に閉じます');
+                    $modal.hide();
+                    $('.modal-backdrop').remove();
+                    $('body').removeClass('modal-open').css('padding-right', '');
+                }
+            }, 300);
+        }
+    });
+});
+
+// モーダルダイアログの制御
+function setupModalControls() {
+    console.log('モーダルの閉じるボタンを設定します');
+    
+    // すべてのモーダルを取得
+    const modals = document.querySelectorAll('.modal');
+    
+    modals.forEach(modal => {
+        // モーダルID取得（デバッグ用）
+        const modalId = modal.id || '不明';
+        console.log(`モーダル "${modalId}" の設定を行います`);
+        
+        // 閉じるボタン（×）のイベント設定
+        const closeButtons = modal.querySelectorAll('.close, [data-dismiss="modal"]');
+        closeButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log(`モーダル "${modalId}" の閉じるボタンがクリックされました`);
+                $(modal).modal('hide');
+            });
+        });
+        
+        // キャンセルボタンのイベント設定
+        const cancelButtons = modal.querySelectorAll('.btn-secondary, .btn-cancel');
+        cancelButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log(`モーダル "${modalId}" のキャンセルボタンがクリックされました`);
+                $(modal).modal('hide');
+            });
+        });
+        
+        // ESCキーでも閉じられるようにする
+        $(modal).on('keydown', function(e) {
+            if (e.key === 'Escape') {
+                console.log(`モーダル "${modalId}" のESCキーが押されました`);
+                $(modal).modal('hide');
+            }
+        });
+    });
+    
+    // モーダル外のクリックで閉じる
+    $(document).on('click', '.modal', function(e) {
+        if ($(e.target).hasClass('modal')) {
+            console.log('モーダル背景がクリックされました');
+            $(this).modal('hide');
+        }
+    });
+}
+
+// 時間セルのクリックイベント
+function setupTimeSlotEvents() {
+    console.log('時間セルのクリックイベントを設定します');
+    
+    // ===== イベントとタイマーの管理変数 =====
+    // 既存のイベントとタイマーをクリア
+    $('.time-cell').off('click');
+    $(document).off('click touchstart.cell-select');
+    $(window).off('scroll.hint-follow');
+    $(window).off('scroll.mobile-hint');
+    
+    // グローバルタイマー・変数のクリア
+    if (window.selectionInfoTimer) {
+        clearTimeout(window.selectionInfoTimer);
+        window.selectionInfoTimer = null;
+    }
+    if (window.hintTimeout) {
+        clearTimeout(window.hintTimeout);
+        window.hintTimeout = null;
+    }
+    
+    // 選択状態の管理変数
+    let selectedCell = null;
+    let selectedCellId = null;
+    let lastScrollTop = 0;
+    let lastScrollLeft = 0;
+    
+    // ===== モバイル判定 =====
+    // モバイルデバイス判定
+    const isMobile = ('ontouchstart' in window) || 
+                       navigator.maxTouchPoints > 0 || 
+                       /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    console.log('モバイルデバイス判定:', isMobile ? 'モバイル' : 'PC');
+    
+    // ===== 選択クリア関数 =====
+    // 選択を解除する関数
+    function clearSelectedCells() {
+        // 選択状態のクラスを削除
+        $('.time-cell').removeClass('selected-cell');
+        
+        // 既存のタイプメニューを削除
+        $('.appointment-type-menu').remove();
+    }
+    
+    // ===== 初期ヒント表示関数 =====
+    // モバイルヒントを表示する関数
+    function showMobileHint() {
+        if (!isMobile) return;
+        
+        // 進行中のタイマーがあればクリア
+        if (window.hintTimeout) {
+            clearTimeout(window.hintTimeout);
+            window.hintTimeout = null;
+        }
+        
+        // ヒントを表示
+        $('.mobile-tap-hint')
+            .removeClass('hide-hint')
+            .addClass('show-hint')
+            .show();
+        
+        // 3秒後に非表示
+        window.hintTimeout = setTimeout(() => {
+            $('.mobile-tap-hint')
+                .removeClass('show-hint')
+                .addClass('hide-hint');
+            
+            // フェードアウト完了後に実際に非表示
+            setTimeout(() => {
+                $('.mobile-tap-hint').removeClass('hide-hint');
+            }, 500);
+        }, 3000);
+    }
+    
+    // 初期表示設定
+    if (isMobile) {
+        // 初期ヒント表示
+        showMobileHint();
+        
+        // スクロールイベントでヒントを再表示（これは一般的なヒント表示用）
+        $(window).on('scroll.mobile-hint', function() {
+            const st = $(window).scrollTop();
+            
+            // 50px以上のスクロールで表示（上下どちらにスクロールしても）
+            if (Math.abs(lastScrollTop - st) > 50) {
+                showMobileHint();
+                lastScrollTop = st;
+            }
+        });
+    } else {
+        // PCでは非表示
+        $('.mobile-tap-hint').hide();
+        $('.tap-again-hint').hide();
+        console.log('モバイルヒントを非表示にします（PCモード）');
+    }
+    
+    // ===== セルのクリック/タップイベント =====
+    $('.time-cell').on('click', function(e) {
+        // もし予約アイテムの中がクリックされたら、このイベントを処理しない
+        if ($(e.target).closest('.appointment-item').length > 0) {
+            return true; // イベントを伝播させる
+        }
+        
+        e.preventDefault(); // デフォルト動作を防止
+        e.stopPropagation(); // イベント伝播を停止
+        
+        const $cell = $(this);
+        
+        // シフト時間外のセルはクリックできないように
+        if ($cell.data('outside-shift') === true) {
+            console.log('シフト時間外のセルがクリックされました: 操作は無効です');
+            return false;
+        }
+        
+        const staffId = $cell.data('staff-id');
+        const timeSlot = $cell.data('time-slot');
+        const cellId = `${staffId}-${timeSlot}`;
+        
+        console.log(`時間セルがクリックされました: スタッフID=${staffId}, 時間=${timeSlot}, モバイル=${isMobile}`);
+        
+        // モバイルの場合は2段階タップを実装
+        if (isMobile) {
+            // すでに1回タップされたセルかチェック
+            if ($cell.hasClass('tapped-once')) {
+                // 2回目のタップ - メニューを表示
+                clearSelectedCells();
+                $cell.addClass('selected-cell');
+                
+                // 追加タイプを選択するミニメニューを表示
+                showAppointmentTypeMenu($cell, staffId, timeSlot);
+                
+                // タップ回数をリセット
+                $cell.removeClass('tapped-once');
+                
+                // タップヒントを非表示
+                $('.tap-again-hint').removeClass('show-hint').hide();
+            } else {
+                // 1回目のタップ - ヒントを表示
+                clearSelectedCells();
+                
+                // セルに1回タップ済みのマークを付ける
+                $cell.addClass('tapped-once selected-cell');
+                
+                // 「もう一度タップ」のヒントを表示
+                const $hint = $('.tap-again-hint');
+                
+                // セルの位置を基準にヒントを表示
+                const cellPos = $cell.offset();
+                const cellWidth = $cell.outerWidth();
+                const cellHeight = $cell.outerHeight();
+                
+                $hint.css({
+                    left: cellPos.left + cellWidth / 2,
+                    top: cellPos.top + cellHeight / 2
+                }).addClass('show-hint bouncing').show();
+                
+                // 3秒後にヒントを自動的に非表示
+                setTimeout(() => {
+                    if ($cell.hasClass('tapped-once')) {
+                        $hint.removeClass('show-hint bouncing');
+                        setTimeout(() => {
+                            $hint.hide();
+                            $cell.removeClass('tapped-once selected-cell');
+                        }, 300);
+                    }
+                }, 3000);
+            }
+        } else {
+            // PCの場合は1回のクリックでメニュー表示
+            clearSelectedCells();
+            $cell.addClass('selected-cell');
+            
+            // 追加タイプを選択するミニメニューを表示
+            showAppointmentTypeMenu($cell, staffId, timeSlot);
+        }
+        
+        return false; // イベント処理を確実に終了
+    });
+    
+    // セル以外の場所をクリックしたらタップ状態をクリア
+    $(document).on('click touchstart.cell-select', function(e) {
+        if (!$(e.target).closest('.time-cell, .tap-again-hint, .appointment-type-menu, .appointment-item').length) {
+            clearSelectedCells();
+            $('.tap-again-hint').removeClass('show-hint bouncing').hide();
+        }
+    });
+    
+    // 追加タイプ選択メニューを表示する関数
+    function showAppointmentTypeMenu($cell, staffId, timeSlot) {
+        // 既存のメニューがあれば削除
+        $('.appointment-type-menu').remove();
+        
+        // セルの位置を取得
+        const cellPos = $cell.offset();
+        const cellWidth = $cell.outerWidth();
+        const cellHeight = $cell.outerHeight();
+        
+        // ミニメニューの作成
+        const $menu = $('<div class="appointment-type-menu"></div>');
+        $menu.append(`<div class="appointment-type-option customer-option" data-type="customer" data-staff="${staffId}" data-time="${timeSlot}">
+            <i class="fas fa-user-clock"></i> 予約追加
+        </div>`);
+        $menu.append(`<div class="appointment-type-option task-option" data-type="task" data-staff="${staffId}" data-time="${timeSlot}">
+            <i class="fas fa-tasks"></i> 業務追加
+        </div>`);
+        
+        // 画面に追加してスタイル設定
+        $('body').append($menu);
+        
+        // モバイルの場合はセルの上に、PCの場合はセルの右側に表示
+        if (isMobile) {
+            $menu.css({
+                left: cellPos.left + cellWidth / 2 - $menu.outerWidth() / 2,
+                top: cellPos.top + cellHeight / 2 - $menu.outerHeight() / 2
+            });
+        } else {
+            $menu.css({
+                left: cellPos.left + cellWidth,
+                top: cellPos.top
+            });
+        }
+        
+        // アニメーションで表示
+        $menu.fadeIn(200);
+        
+        // 選択オプションのクリックイベント
+        $('.appointment-type-option').on('click', function() {
+            const type = $(this).data('type');
+            const staffId = $(this).data('staff');
+            const timeSlot = $(this).data('time');
+            
+            // メニューを閉じる
+            $('.appointment-type-menu').fadeOut(200, function() {
+                $(this).remove();
+            });
+            
+            // 選択した内容でモーダルを開く
+            openAppointmentModal(staffId, timeSlot, type);
+        });
+        
+        // 画面の別の場所をクリックしたらメニューを閉じる
+        $(document).on('click.appointment-menu', function(e) {
+            if (!$(e.target).closest('.appointment-type-menu, .selected-cell').length) {
+                $('.appointment-type-menu').fadeOut(200, function() {
+                    $(this).remove();
+                });
+                clearSelectedCells();
+                $(document).off('click.appointment-menu');
+            }
+        });
+    }
+});
+
+// 予約アイテムのクリック処理関数
+function handleAppointmentItemClick(element, event) {
+    // ドラッグ中は処理しない
+    if ($(element).hasClass('dragging') || $(element).hasClass('ui-draggable-dragging')) {
+        console.log('ドラッグ中のクリックは無視します');
+        return;
+    }
+    
+    // クリックされた要素からデータを取得
+    const appointmentId = $(element).data('appointment-id');
+    const isTask = $(element).hasClass('task');
+    
+    console.log(`予約/業務ID ${appointmentId} がクリックされました。タイプ: ${isTask ? '業務' : '予約'}`);
+    
+    // 予約/業務データを取得して詳細表示
+    showAppointmentDetails(element, isTask);
+}
+
+// 予約/業務詳細を表示する関数
+function showAppointmentDetails(element, isTask = false) {
+    const $element = $(element);
+    const appointmentId = $element.data('appointment-id');
+    const staffId = $element.data('staff-id');
+    const startTime = $element.find('.appointment-time').text().split('～')[0].trim();
+    
+    // 予約/業務の種類に応じたタイトルを設定
+    const title = isTask ? '業務詳細' : '予約詳細';
+    $('#appointmentDetailsModal .modal-title').text(title);
+    
+    // 顧客名/業務内容とサービス名/タスクの説明を取得
+    let customerName, serviceName, appointmentTime, status, staffName;
+    
+    // 予約/業務の種類でデータ取得方法を分ける
+    if (isTask) {
+        // 業務の場合
+        customerName = '業務';
+        serviceName = $element.find('.appointment-service').text() || 'なし';
+        appointmentTime = $element.find('.appointment-time').text() || 'なし';
+        status = $element.hasClass('cancelled') ? 'キャンセル済' : '予定';
+    } else {
+        // 予約の場合
+        customerName = $element.find('.appointment-customer').text() || '未設定';
+        serviceName = $element.find('.appointment-service').text() || 'なし';
+        appointmentTime = $element.find('.appointment-time').text() || 'なし';
+        
+        // 予約ステータスの判定
+        if ($element.hasClass('confirmed')) {
+            status = '確定';
+        } else if ($element.hasClass('cancelled')) {
+            status = 'キャンセル済';
+        } else if ($element.hasClass('no-show')) {
+            status = '無断キャンセル';
+        } else {
+            status = '予定';
+        }
+    }
+    
+    // スタッフ名を取得（テーブルヘッダーから）
+    const staffIndex = $element.data('staff-index');
+    staffName = $('.staff-header').eq(staffIndex).find('.staff-name').text();
+    
+    // ステータスに応じたバッジクラスを設定
+    let statusBadgeClass = 'badge-secondary';
+    switch (status) {
+        case '確定':
+            statusBadgeClass = 'badge-primary';
+            break;
+        case 'キャンセル済':
+            statusBadgeClass = 'badge-danger';
+            break;
+        case '無断キャンセル':
+            statusBadgeClass = 'badge-warning';
+            break;
+        default:
+            statusBadgeClass = 'badge-secondary';
+    }
+    
+    // 予約タイプを判定
+    const appointmentType = isTask ? 'task' : 'customer';
+    
+    // 詳細情報のHTMLを構築
+    const detailsHTML = `
+        <div class="appointment-details-container">
+            <div class="detail-row">
+                <span class="detail-label">${appointmentType === 'task' ? '業務内容:' : 'お客様:'}</span>
+                <span class="detail-value">${customerName || '未設定'}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">${appointmentType === 'task' ? '詳細:' : 'メニュー:'}</span>
+                <span class="detail-value">${serviceName || '未設定'}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">${appointmentType === 'task' ? '時間:' : '予約時間:'}</span>
+                <span class="detail-value">${appointmentTime || '未設定'}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">担当者:</span>
+                <span class="detail-value">${staffName || '未設定'}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">ステータス:</span>
+                <span class="detail-value"><span class="badge ${statusBadgeClass}">${status}</span></span>
+            </div>
+        </div>
+    `;
+    
+    // モーダル本体を更新
+    $('#appointmentDetailsModal .modal-body').html(detailsHTML);
+    
+    // 操作ボタン設定
+    $('#appointmentDetailsModal .modal-footer').html(`
+        <button type="button" class="btn btn-primary edit-appointment-btn" data-appointment-id="${appointmentId}" data-is-task="${isTask}">
+            <i class="fas fa-edit"></i> 編集
+        </button>
+        <button type="button" class="btn btn-danger delete-appointment-btn" data-appointment-id="${appointmentId}" data-is-task="${isTask}">
+            <i class="fas fa-trash"></i> 削除
+        </button>
+        ${appointmentType === 'task' ? '' : `
+        <button type="button" class="btn btn-success confirm-appointment-btn" data-appointment-id="${appointmentId}">
+            <i class="fas fa-check"></i> 確定
+        </button>
+        <button type="button" class="btn btn-warning cancel-appointment-btn" data-appointment-id="${appointmentId}">
+            <i class="fas fa-times"></i> キャンセル
+        </button>
+        `}
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">閉じる</button>
+    `);
+    
+    // モーダル表示
+    console.log('モーダルを表示します...');
+    $('#appointmentDetailsModal').modal('show');
+    
+    // ボタンイベントの設定
+    setupAppointmentActionButtons();
+}
+
+// 予約編集の準備関数
+function prepareAppointmentEdit(appointmentId) {
+    console.log('予約編集の準備を開始: ID=', appointmentId);
+    showLoading();
+    
+    try {
+        // 予約要素が存在するか確認
+        const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+        
+        // モーダルを閉じる（編集フォームを表示する前に詳細モーダルを閉じる）
+        $('#appointmentDetailsModal').modal('hide');
+        
+        if ($appointmentEl.length > 0) {
+            // 予約要素から直接データを取得
+            const isTask = $appointmentEl.hasClass('task');
+            
+            if (isTask) {
+                console.log('業務編集を開始: タスクID=', appointmentId);
+                prepareTaskEdit(appointmentId);
+            } else {
+                // 通常の予約の場合は既存ロジックで処理
+                console.log('予約編集を開始: 要素から直接データを取得します');
+                
+                // フォームをリセット
+                $('#addAppointmentForm')[0].reset();
+                
+                // 編集モードを設定
+                $('#appointment_action').val('edit');
+                $('#appointment_id').val(appointmentId);
+                
+                // APIからデータを取得
+                fetchAppointmentData(appointmentId);
+            }
+        } else {
+            console.error('指定された予約要素が見つかりません: ID=', appointmentId);
+            showMessage('指定された予約が見つかりません', 'error');
+            hideLoading();
+        }
+    } catch (e) {
+        console.error('予約/業務編集準備中のエラー:', e);
+        hideLoading();
+        showMessage(`情報の取得中にエラーが発生しました: ${e.message}`, 'error');
+    }
+}
+
+// 業務の編集準備関数
+function prepareTaskEdit(taskId) {
+    console.log('業務編集の準備を開始: ID=', taskId);
+    showLoading(); // ローディング表示
+    
+    $.ajax({
+        url: 'ajax/task_handler.php',
+        type: 'GET',
+        data: {
+            action: 'get',
+            task_id: taskId
+        },
+        dataType: 'json',
+        success: function(response) {
+            hideLoading(); // ローディング非表示
+            
+            if (response.success && response.data) {
+                const task = response.data;
+                console.log('取得した業務データ:', task);
+                
+                // フォームをリセット
+                $('#addAppointmentForm')[0].reset();
+                
+                // 編集モードを設定
+                $('#appointment_action').val('edit');
+                $('#appointment_id').val(task.task_id);
+                
+                // 業務データをフォームにセット
+                $('#staff_id').val(task.staff_id);
+                $('#start_time').val(task.start_time);
+                $('#end_time').val(task.end_time);
+                $('#task_description').val(task.task_description);
+                $('#appointment_type').val('task');
+                
+                // スタッフ名をログに出力（デバッグ用）
+                if (task.first_name && task.last_name) {
+                    console.log(`担当スタッフ: ${task.last_name} ${task.first_name}`);
+                }
+                
+                // UIの調整
+                $('.modal-title').text('業務編集');
+                $('#customer_section').hide();
+                $('#task_section').show();
+                
+                // hiddenフィールドの設定
+                if (!$('#hidden_client_id').length) {
+                    $('#addAppointmentForm').append('<input type="hidden" id="hidden_client_id" name="client_id" value="0">');
+                } else {
+                    $('#hidden_client_id').val('0');
+                }
+                
+                // モーダルを表示
+                $('#addAppointmentModal').modal('show');
+                
+                console.log('業務編集モーダルが表示されました');
+            } else {
+                const errorMsg = response.message || 'APIエラー';
+                console.error('業務データ取得エラー:', errorMsg);
+                showMessage('業務情報の取得に失敗しました: ' + errorMsg, 'error');
+            }
+        },
+        error: function(xhr, status, error) {
+            hideLoading(); // ローディング非表示
+            console.error('業務詳細取得エラー:', xhr.responseText);
+            showMessage('APIエラーが発生しました: ' + error, 'error');
+        },
+        complete: function() {
+            hideLoading(); // 念のため、ローディング非表示
+        }
+    });
+}
+
+// 予約データを取得する関数
+function fetchAppointmentData(appointmentId) {
+    console.log('予約データを取得します: ID=', appointmentId);
+    
+    // 予約要素からタイプを判断
+    const $appointmentEl = $(`.appointment-item[data-appointment-id="${appointmentId}"]`);
+    const isTask = $appointmentEl.length > 0 && $appointmentEl.hasClass('task');
+    
+    if (isTask) {
+        console.log('業務データを取得します');
+        prepareTaskEdit(appointmentId);
+    } else {
+        console.log('通常の予約データを取得します');
+        $.ajax({
+            url: 'api/appointments/get_appointment.php',
+            type: 'GET',
+            data: {
+                appointment_id: appointmentId
+            },
+            dataType: 'json',
+            success: function(response) {
+                hideLoading();
+                
+                if (response.success && response.data) {
+                    // 予約データをフォームにセット
+                    const appointment = response.data;
+                    
+                    $('#staff_id').val(appointment.staff_id);
+                    $('#start_time').val(appointment.start_time);
+                    $('#end_time').val(appointment.end_time);
+                    $('#customer_id').val(appointment.customer_id);
+                    $('#service_id').val(appointment.service_id);
+                    $('#notes').val(appointment.notes);
+                    
+                    // UIの調整
+                    $('.modal-title').text('予約編集');
+                    $('#customer_section').show();
+                    $('#task_section').hide();
+                    
+                    // モーダルを表示
+                    $('#addAppointmentModal').modal('show');
+                } else {
+                    const errorMsg = response.message || 'APIエラー';
+                    console.error('予約データ取得エラー:', errorMsg);
+                    showMessage('予約情報の取得に失敗しました: ' + errorMsg, 'error');
+                }
+            },
+            error: function(xhr, status, error) {
+                hideLoading();
+                console.error('予約詳細取得エラー:', xhr.responseText);
+                showMessage('APIエラーが発生しました: ' + error, 'error');
+            }
+        });
+    }
+}

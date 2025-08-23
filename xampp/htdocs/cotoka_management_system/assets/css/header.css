@@ -1,0 +1,596 @@
+/* Cotoka Management System - ヘッダー・サイドバーのスタイル */
+
+/***************************************
+ * サイドバー
+ ***************************************/
+.sidebar {
+    width: var(--sidebar-width);
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    background: var(--luxury-gradient);
+    color: white;
+    overflow-y: auto;
+    transition: all var(--transition-speed) ease;
+    z-index: 1200 !important; /* z-indexを上げる */
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+    display: block !important; /* 常に表示要素として存在させる */
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    color: var(--secondary-color);
+    font-weight: 700;
+    font-size: 1.2rem;
+}
+
+.brand i {
+    margin-right: 10px;
+    font-size: 1.5rem;
+}
+
+/* サイドバーレイアウト */
+.sidebar-layout {
+    display: flex;
+}
+
+.sidebar-collapsed .sidebar {
+    margin-left: calc(-1 * var(--sidebar-width)) !important;
+    width: 0 !important;
+}
+
+.main-content {
+    flex: 1;
+    margin-left: var(--sidebar-width);
+    transition: margin-left var(--transition-speed) ease;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    width: calc(100% - var(--sidebar-width)); /* 幅を明示的に指定 */
+    overflow-x: hidden; /* はみ出しを防止 */
+}
+
+.sidebar-collapsed .main-content {
+    margin-left: 0 !important;
+    width: 100% !important; /* サイドバー非表示時は全幅に */
+}
+
+/* サイドバーメニュー */
+.sidebar-menu {
+    padding: 20px 0;
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    z-index: 1201 !important;
+}
+
+.sidebar-menu ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+}
+
+.sidebar-menu li {
+    margin-bottom: 5px;
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+}
+
+.sidebar-menu li a {
+    display: flex !important;
+    align-items: center;
+    padding: 12px 20px;
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+    transition: all 0.3s;
+    border-left: 3px solid transparent;
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    z-index: 1201 !important;
+}
+
+.sidebar-menu li a:hover,
+.sidebar-menu li.active a {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border-left-color: var(--secondary-color);
+}
+
+.sidebar-menu li a i {
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
+    font-size: 1.1rem;
+}
+
+/* サイドバーオーバーレイ */
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 900;
+    animation: fadeIn 0.2s ease-in-out;
+    pointer-events: auto;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* サイドバーアニメーション */
+.sidebar.animating {
+    transition: margin-left 0.3s ease, transform 0.3s ease;
+}
+
+/***************************************
+ * メインヘッダー
+ ***************************************/
+.main-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 10px 20px !important;
+    background: linear-gradient(to right, rgba(212, 175, 55, 0.8), rgba(255, 255, 255, 0.8)) !important;
+    backdrop-filter: blur(5px) !important;
+    -webkit-backdrop-filter: blur(5px) !important;
+    border-left: 4px solid var(--secondary-color) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05) !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: var(--sidebar-width) !important;
+    right: 0 !important;
+    z-index: 100 !important;
+    margin-bottom: 20px !important;
+    height: 80px !important; /* 統一された高さを設定 */
+    transition: left var(--transition-speed) ease !important;
+}
+
+.sidebar-collapsed .main-header {
+    left: 0 !important;
+}
+
+.toggle-sidebar {
+    display: flex !important;
+    align-items: center !important;
+    height: 40px !important; /* 統一された高さを設定 */
+}
+
+.current-date {
+    display: flex;
+    align-items: center;
+    margin-left: 20px;
+    color: var(--light-text, #666);
+    font-size: 0.9rem;
+    background-color: rgba(255, 255, 255, 0.6);
+    padding: 6px 12px;
+    border-radius: 20px;
+}
+
+.current-date i {
+    margin-right: 8px;
+    color: var(--secondary-color, #d4af37);
+}
+
+/* サロン名とページ名表示 */
+.salon-page-info {
+    display: flex;
+    align-items: center;
+    margin-left: 15px;
+    padding-left: 15px;
+    border-left: 1px solid #e0e0e0;
+    color: var(--primary-text, #333);
+    font-size: 0.9rem;
+}
+
+.salon-page-info span {
+    font-weight: 500;
+}
+
+/* ユーザーメニュー */
+.user-menu {
+    position: relative;
+    z-index: 1001 !important;
+}
+
+.user-menu .dropdown-toggle {
+    display: flex;
+    align-items: center;
+    background: transparent;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer !important;
+    transition: all 0.2s;
+    z-index: 1001 !important;
+}
+
+.user-menu .dropdown-toggle::after {
+    display: inline-block;
+    margin-left: 0.255em;
+    vertical-align: 0.255em;
+    content: "";
+    border-top: 0.3em solid;
+    border-right: 0.3em solid transparent;
+    border-bottom: 0;
+    border-left: 0.3em solid transparent;
+    color: var(--secondary-color);
+}
+
+.user-menu .dropdown-toggle:hover,
+.user-menu .dropdown-toggle:focus {
+    background: rgba(212, 175, 55, 0.1);
+}
+
+.user-initial {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--secondary-color);
+    color: white;
+    border-radius: 50%;
+    font-weight: 600;
+    margin-right: 10px;
+    font-size: 1.1rem;
+    box-shadow: 0 2px 10px rgba(212, 175, 55, 0.3);
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    margin-right: 10px;
+}
+
+.user-name {
+    font-weight: 600;
+    color: #333;
+    font-size: 0.95rem;
+}
+
+.user-role {
+    font-size: 0.8rem;
+    color: #777;
+}
+
+/* ドロップダウンメニュー */
+.dropdown-menu {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.15);
+    padding: 10px 0;
+    min-width: 220px;
+    z-index: 1001 !important;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(10px);
+    transition: all 0.25s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+    border: none;
+}
+
+.dropdown-menu.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    z-index: 1001 !important;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 20px;
+    color: #333;
+    text-decoration: none;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+    cursor: pointer !important;
+}
+
+.dropdown-item i {
+    margin-right: 12px;
+    width: 20px;
+    text-align: center;
+    color: #666;
+    font-size: 1rem;
+}
+
+.dropdown-item:hover, .dropdown-item:focus {
+    background: rgba(212, 175, 55, 0.1);
+    color: var(--secondary-color);
+}
+
+.dropdown-item:hover i, .dropdown-item:focus i {
+    color: var(--secondary-color);
+}
+
+/* ハンバーガーボタン */
+.sidebar-toggle-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 8px !important;
+    background: transparent !important;
+    border: none !important;
+    color: #555 !important;
+    font-size: 1.25rem !important;
+    cursor: pointer !important;
+    transition: all 0.2s !important;
+    position: relative !important;
+    z-index: 1100 !important;
+    padding: 0 !important; /* パディングを削除 */
+}
+
+.sidebar-toggle-btn:hover, 
+.sidebar-toggle-btn:focus {
+    background: rgba(212, 175, 55, 0.1) !important;
+    color: var(--secondary-color) !important;
+}
+
+/* メインコンテナ */
+.main-container {
+    width: 100%;
+    padding: 0 20px 20px 20px;
+    overflow-x: hidden; /* はみ出しを防止 */
+    box-sizing: border-box; /* パディングを幅に含める */
+    flex: 1;
+    padding-top: 100px !important; /* ヘッダーの高さ + 余白 */
+}
+
+/***************************************
+ * レスポンシブ設定
+ ***************************************/
+@media (max-width: 992px) {
+    /* サイドバー自体のスタイル */
+    .sidebar {
+        margin-left: -260px;
+        z-index: 1200 !important;
+        box-shadow: none;
+        transition: all 0.3s ease;
+        background: var(--luxury-gradient) !important;
+        color: white !important;
+        position: fixed !important;
+        width: 260px !important;
+        height: 100% !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    
+    .main-content {
+        margin-left: 0;
+        width: 100%;
+        transition: margin-left 0.3s ease, width 0.3s ease;
+    }
+    
+    /* サイドバーが表示される状態 */
+    body:not(.sidebar-collapsed) .sidebar {
+        margin-left: 0 !important;
+        box-shadow: 2px 0 15px rgba(0, 0, 0, 0.2);
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    
+    /* サイドバーが表示されている時、メインコンテンツを押す */
+    body:not(.sidebar-collapsed) .main-content {
+        margin-left: 260px !important;
+        width: calc(100% - 260px) !important;
+        transition: margin-left 0.3s ease, width 0.3s ease;
+    }
+    
+    /* メインヘッダーも同様に移動 */
+    body:not(.sidebar-collapsed) .main-header {
+        left: 260px !important;
+        width: calc(100% - 260px) !important;
+        transition: left 0.3s ease, width 0.3s ease;
+    }
+    
+    .sidebar-toggle-btn {
+        display: block !important;
+    }
+    
+    /* サイドバーオーバーレイ */
+    .sidebar-overlay {
+        z-index: 900 !important; /* サイドバーよりも下に表示 */
+        background-color: rgba(0, 0, 0, 0.5);
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+    }
+    
+    /* サイドバー内のメニュー項目 */
+    .sidebar-menu {
+        display: block !important;
+        visibility: visible !important;
+        pointer-events: auto !important; /* クリックイベントを有効にする */
+        position: relative !important;
+        z-index: 1201 !important; /* サイドバーよりさらに上に表示 */
+    }
+    
+    .sidebar-menu ul {
+        display: block !important;
+        visibility: visible !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        pointer-events: auto !important; /* クリックイベントを有効にする */
+    }
+    
+    .sidebar-menu li {
+        display: block !important;
+        visibility: visible !important;
+        pointer-events: auto !important; /* クリックイベントを有効にする */
+    }
+    
+    .sidebar-menu li a {
+        padding: 15px 20px !important;
+        color: rgba(255, 255, 255, 0.9) !important;
+        display: flex !important;
+        align-items: center !important;
+        text-decoration: none !important;
+        pointer-events: auto !important; /* クリックイベントを有効にする */
+        position: relative !important;
+        z-index: 1201 !important; /* サイドバーよりさらに上に表示 */
+        cursor: pointer !important;
+    }
+    
+    .sidebar-menu li a:hover,
+    .sidebar-menu li.active a {
+        background: rgba(255, 255, 255, 0.2) !important;
+        color: white !important;
+    }
+    
+    /* アイコンのスタイル */
+    .sidebar-menu li a i {
+        margin-right: 10px !important;
+        width: 20px !important;
+        text-align: center !important;
+        font-size: 1.1rem !important;
+        color: white !important;
+    }
+    
+    .current-date {
+        display: none !important;
+    }
+    
+    .salon-page-info {
+        border-left: none !important;
+        margin-left: 10px !important;
+        padding-left: 0 !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .user-info {
+        display: none !important;
+    }
+    
+    .main-header {
+        height: 60px !important;
+    }
+    
+    .main-container {
+        padding-top: 80px !important;
+    }
+}
+
+@media (max-width: 576px) {
+    .current-date span {
+        display: none;
+    }
+    
+    .current-date i {
+        margin-right: 0;
+    }
+    
+    .salon-page-info {
+        font-size: 0.8rem;
+    }
+}
+
+/* ヘッダーのサロン選択部分 */
+.header-salon-selector {
+    display: flex;
+    align-items: center;
+    margin-right: 15px;
+}
+
+.header-salon-selector select {
+    min-width: 160px;
+    max-width: 300px;
+    width: auto;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.header-salon-selector label {
+    color: #fff;
+    margin-right: 8px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+/* セレクトボックスのオプション改善 */
+select option {
+    white-space: normal;
+    padding: 8px;
+    width: 100%;
+    overflow: visible;
+    color: #333;
+    font-size: 14px;
+}
+
+/* ドロップダウンメニューの幅を改善 */
+.dropdown-menu {
+    min-width: 220px;
+    max-width: 320px;
+    width: auto;
+}
+
+.dropdown-menu .dropdown-item {
+    white-space: normal;
+    word-break: break-word;
+    padding: 10px 16px;
+}
+
+/* ドロップダウンでテキストが途切れる問題を修正 */
+.dropdown-toggle, 
+.dropdown-menu, 
+.form-select {
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.dropdown-menu li {
+    max-width: 100%;
+}
+
+/* ドロップダウンリスト内のテキスト表示を改善 */
+.dropdown-menu li a, 
+.dropdown-item,
+select option {
+    overflow: visible;
+    white-space: normal;
+    word-wrap: break-word;
+    text-overflow: clip;
+} 

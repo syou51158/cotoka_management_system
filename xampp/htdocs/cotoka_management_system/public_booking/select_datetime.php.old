@@ -1,0 +1,1215 @@
+<?php
+// 必要なファイルを読み込み
+require_once '../config/config.php';
+require_once '../classes/Database.php';
+require_once '../includes/functions.php';
+
+// タイムゾーンを明示的に設定
+date_default_timezone_set('Asia/Tokyo');
+
+// セッション開始（セッションがまだ開始されていない場合のみ）
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// サロンIDと選択されたサービスの取得と検証
+$salon_id = $_SESSION['booking_salon_id'] ?? null;
+$services = $_SESSION['booking_services'] ?? null;
+
+if (!$salon_id) {
+    $_SESSION['error_message'] = "セッションが切れました。最初からやり直してください。";
+    header('Location: index.php');
+    exit;
+}
+
+if (empty($services)) {
+    $_SESSION['error_message'] = "サービスが選択されていません。";
+    header('Location: select_service.php');
+    exit;
+}
+
+// データベース接続
+try {
+    $db = new Database();
+    $conn = $db->getConnection();
+} catch (Exception $e) {
+    error_log("データベース接続エラー：" . $e->getMessage());
+    $_SESSION['error_message'] = "システムエラーが発生しました。しばらく時間をおいて再度お試しください。";
+    header('Location: error.php');
+    exit;
+}
+
+// サロン情報の取得
+try {
+    $stmt = $conn->prepare("
+        SELECT 
+            s.salon_id,
+            s.name as salon_name,
+            s.address,
+            s.phone,
+            s.business_hours
+        FROM salons s
+        WHERE s.salon_id = :salon_id AND s.status = 'active'
+    ");
+    $stmt->bindParam(':salon_id', $salon_id);
+    $stmt->execute();
+    $salon = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$salon) {
+        throw new Exception("サロン情報が見つかりません。");
+    }
+    
+    // 営業時間の解析（JSON形式で保存されていると仮定）
+    $business_hours = [];
+    if (!empty($salon['business_hours'])) {
+        $business_hours = json_decode($salon['business_hours'], true) ?? [];
+    }
+
+    // サロンの営業時間をデータベースからも取得（優先して使用）
+    $stmt = $conn->prepare("
+        SELECT 
+            day_of_week,
+            open_time,
+            close_time,
+            is_closed
+        FROM salon_business_hours
+        WHERE salon_id = :salon_id
+        ORDER BY day_of_week
+    ");
+    $stmt->bindParam(':salon_id', $salon_id);
+    $stmt->execute();
+    $db_business_hours = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // データベースから取得した営業時間がある場合は優先して使用
+    if (!empty($db_business_hours)) {
+        // 配列を初期化
+        $business_hours = [];
+        foreach ($db_business_hours as $hour) {
+            // データベースと同じ0-6の曜日表記に統一（0: 日 - 6: 土）
+            $day = $hour['day_of_week']; 
+            if ($hour['is_closed']) {
+                $business_hours[$day] = ["start" => "", "end" => ""];
+            } else {
+                $business_hours[$day] = [
+                    "start" => substr($hour['open_time'], 0, 5),
+                    "end" => substr($hour['close_time'], 0, 5)
+                ];
+            }
+        }
+        debug_log("データベースから営業時間を取得しました：" . json_encode($business_hours));
+    }
+    
+} catch (Exception $e) {
+    error_log("サロン情報取得エラー：" . $e->getMessage());
+    $_SESSION['error_message'] = $e->getMessage();
+    header('Location: error.php');
+    exit;
+}
+
+// 選択されたサービス情報の確認
+$service_ids = array_column($services, 'service_id');
+$service_total_duration = array_sum(array_column($services, 'duration'));
+$service_total_price = array_sum(array_column($services, 'price'));
+
+// デバッグログを保存
+function debug_log($message) {
+    error_log($message);
+    file_put_contents(__DIR__ . '/debug.txt', date('Y-m-d H:i:s') . ' - ' . $message . "\n", FILE_APPEND);
+}
+
+// デバッグ情報
+debug_log('予約処理開始...');
+debug_log('サロンID: ' . $salon_id);
+debug_log('選択サービス: ' . json_encode($services));
+
+// スタッフの取得
+try {
+    // 選択したサービスに対応しているスタッフのみ取得
+    $placeholders = implode(',', array_fill(0, count($service_ids), '?'));
+    
+    // デバッグ用
+    debug_log("サービスID: " . implode(',', $service_ids));
+    
+    // クエリを修正：サービスの一部だけでもマッチするようにHAVINGを調整
+    $query = "
+        SELECT 
+            s.staff_id,
+            CONCAT(s.first_name, ' ', s.last_name) as name,
+            '' as photo_url,
+            s.status,
+            '' as profile,
+            COUNT(DISTINCT ss.service_id) as matching_services_count
+        FROM staff s
+        JOIN staff_services ss ON s.staff_id = ss.staff_id
+        WHERE s.salon_id = ? 
+        AND s.status = 'active'
+        AND ss.service_id IN ($placeholders)
+        AND ss.is_active = 1
+        GROUP BY s.staff_id
+        HAVING matching_services_count > 0
+        ORDER BY matching_services_count DESC
+    ";
+    
+    $params = [$salon_id];
+    foreach ($service_ids as $id) {
+        $params[] = $id;
+    }
+    
+    $stmt = $conn->prepare($query);
+    $stmt->execute($params);
+    $staffs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // デバッグ用
+    debug_log("スタッフ数: " . count($staffs));
+    debug_log("スタッフデータ: " . json_encode($staffs));
+
+    // スタッフが見つからない場合やデータが不完全な場合は、フォールバックとして別クエリを実行
+    if (empty($staffs)) {
+        debug_log("サービスに対応するスタッフが見つからないため、全スタッフを取得します");
+        
+        // 全スタッフを取得するフォールバッククエリ
+        $fallback_query = "
+            SELECT 
+                s.staff_id,
+                CONCAT(s.first_name, ' ', s.last_name) as name,
+                '' as photo_url,
+                s.status,
+                '' as profile
+            FROM staff s
+            WHERE s.salon_id = ? 
+            AND s.status = 'active'
+            ORDER BY s.staff_id
+            LIMIT 10
+        ";
+        
+        $stmt = $conn->prepare($fallback_query);
+        $stmt->bindParam(1, $salon_id);
+        $stmt->execute();
+        $staffs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (empty($staffs)) {
+            debug_log("スタッフが一人も見つかりません");
+            throw new Exception("サービスに対応しているスタッフが見つかりません。");
+        }
+    }
+    
+    // 各スタッフに対して担当サービスを詳細に取得
+    foreach ($staffs as &$staff) {
+        $staff_id = $staff['staff_id'];
+        
+        // スタッフが担当するサービスIDを取得
+        $stmt = $conn->prepare("
+            SELECT service_id 
+            FROM staff_services 
+            WHERE staff_id = ? 
+            AND is_active = 1
+        ");
+        $stmt->bindParam(1, $staff_id);
+        $stmt->execute();
+        $staff_services = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        // スタッフの情報に担当サービスを追加
+        $staff['services'] = $staff_services;
+        
+        debug_log("スタッフID " . $staff_id . " の担当サービス: " . json_encode($staff_services));
+    }
+    
+} catch (Exception $e) {
+    debug_log("スタッフ取得エラー：" . $e->getMessage());
+    error_log("スタッフ取得エラー：" . $e->getMessage());
+    $_SESSION['error_message'] = $e->getMessage();
+    header('Location: error.php');
+    exit;
+}
+
+// 営業日の取得（30日分）
+$today = date('Y-m-d');
+$start_date = $today;
+$end_date = date('Y-m-d', strtotime($today . ' + 29 days'));
+
+$calendar_days = [];
+$current_date = new DateTime($start_date);
+$end_date_obj = new DateTime($end_date);
+
+// 問題のデバッグ表示
+debug_log("営業時間: " . json_encode($business_hours));
+
+// 営業時間がJSON形式でない場合は、デフォルト値を設定
+if (empty($business_hours)) {
+    $business_hours = [
+        "1" => ["start" => "10:00", "end" => "19:00"], // 月曜日
+        "2" => ["start" => "10:00", "end" => "19:00"], // 火曜日
+        "3" => ["start" => "10:00", "end" => "19:00"], // 水曜日
+        "4" => ["start" => "10:00", "end" => "19:00"], // 木曜日
+        "5" => ["start" => "10:00", "end" => "19:00"], // 金曜日
+        "6" => ["start" => "10:00", "end" => "19:00"], // 土曜日
+        "7" => ["start" => "10:00", "end" => "18:00"]  // 日曜日
+    ];
+    debug_log("営業時間が設定されていないため、デフォルト値を使用します");
+}
+
+// スタッフの取得後、スタッフシフト情報を取得
+try {
+    // スタッフのシフト情報取得（現在日付から30日間）
+    $stmt = $conn->prepare("
+        SELECT 
+            staff_id, 
+            shift_date, 
+            start_time, 
+            end_time,
+            status
+        FROM staff_shifts
+        WHERE salon_id = :salon_id 
+        AND shift_date BETWEEN :start_date AND :end_date
+        AND status = 'active'
+    ");
+    $stmt->bindParam(':salon_id', $salon_id);
+    $stmt->bindParam(':start_date', $start_date);
+    $stmt->bindParam(':end_date', $end_date);
+    $stmt->execute();
+    $staff_shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // スタッフID、日付ごとにシフト情報を整理
+    $staff_availability = [];
+    foreach ($staff_shifts as $shift) {
+        $date = $shift['shift_date'];
+        $staff_id = $shift['staff_id'];
+        
+        if (!isset($staff_availability[$date])) {
+            $staff_availability[$date] = [];
+        }
+        
+        $staff_availability[$date][$staff_id] = [
+            'start_time' => $shift['start_time'],
+            'end_time' => $shift['end_time']
+        ];
+    }
+    
+    debug_log("スタッフシフト情報: " . json_encode($staff_availability));
+    
+} catch (Exception $e) {
+    debug_log("スタッフシフト取得エラー: " . $e->getMessage());
+    // エラーでも続行（シフトがなくても営業時間内で予約受付）
+    $staff_availability = [];
+}
+
+// 曜日表記の統一（PHPの曜日表記: 0=日曜, 1=月曜, ..., 6=土曜）
+while ($current_date <= $end_date_obj) {
+    $date_string = $current_date->format('Y-m-d');
+    // PHPの曜日は 0（日）～ 6（土）、DBの曜日も 0（日）～ 6（土）に統一
+    $day_of_week = $current_date->format('w'); 
+    
+    // 営業日判定
+    $is_business_day = isset($business_hours[$day_of_week]) && 
+                       !empty($business_hours[$day_of_week]['start']) && 
+                       !empty($business_hours[$day_of_week]['end']);
+    
+    // デバッグ用
+    if (!$is_business_day) {
+        debug_log($date_string . " は営業日ではありません（曜日: " . $day_of_week . "）");
+    }
+    
+    $calendar_days[$date_string] = [
+        'date' => $date_string,
+        'day' => $current_date->format('j'),
+        'day_of_week' => $day_of_week,
+        'month' => $current_date->format('n'),
+        'year' => $current_date->format('Y'),
+        'is_business_day' => $is_business_day,
+        'is_past' => $date_string < $today
+    ];
+    
+    $current_date->modify('+1 day');
+}
+
+// 予約済み時間枠の取得
+function getBookedTimeSlots($conn, $salon_id, $start_date, $end_date) {
+    $booked_slots = [];
+    
+    try {
+        $stmt = $conn->prepare("
+            SELECT 
+                a.appointment_date,
+                a.start_time,
+                a.end_time,
+                a.staff_id,
+                a.status
+            FROM appointments a
+            WHERE a.salon_id = :salon_id
+            AND a.appointment_date BETWEEN :start_date AND :end_date
+            AND a.status NOT IN ('cancelled', 'no-show')
+        ");
+        $stmt->bindParam(':salon_id', $salon_id);
+        $stmt->bindParam(':start_date', $start_date);
+        $stmt->bindParam(':end_date', $end_date);
+        $stmt->execute();
+        
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $date = $row['appointment_date'];
+            $staff_id = $row['staff_id'];
+            
+            if (!isset($booked_slots[$date])) {
+                $booked_slots[$date] = [];
+            }
+            if (!isset($booked_slots[$date][$staff_id])) {
+                $booked_slots[$date][$staff_id] = [];
+            }
+            
+            $start_time = $row['start_time'];
+            $end_time = $row['end_time'];
+            
+            // 開始時間から終了時間までの全ての30分枠を予約済みとしてマーク
+            $current_time = new DateTime($start_time);
+            $end_time_obj = new DateTime($end_time);
+            
+            while ($current_time < $end_time_obj) {
+                $time_key = $current_time->format('H:i');
+                $booked_slots[$date][$staff_id][$time_key] = true;
+                $current_time->modify('+30 minutes');
+            }
+        }
+        
+        debug_log("予約済み時間枠： " . json_encode($booked_slots));
+        return $booked_slots;
+        
+    } catch (Exception $e) {
+        error_log("予約済み時間枠取得エラー：" . $e->getMessage());
+        debug_log("予約済み時間枠取得エラー：" . $e->getMessage());
+        return [];
+    }
+}
+
+$booked_time_slots = getBookedTimeSlots($conn, $salon_id, $start_date, $end_date);
+
+// 時間枠生成のための新しい関数を追加
+function generateTimeSlotsFromRange($start_time, $end_time, $service_duration, $interval = 30) {
+    $time_slots = [];
+    
+    $current_time = new DateTime($start_time);
+    $end_time_obj = new DateTime($end_time);
+    
+    // サービス時間分を引いて、最終開始可能時間を計算
+    $max_start_time = clone $end_time_obj;
+    $max_start_time->modify('-' . $service_duration . ' minutes');
+    
+    while ($current_time <= $max_start_time) {
+        $time_key = $current_time->format('H:i');
+        $time_slots[] = $time_key;
+        $current_time->modify('+' . $interval . ' minutes');
+    }
+    
+    return $time_slots;
+}
+
+// 元のgenerateTimeSlotsの関数も残す（既存コードから参照されているため）
+function generateTimeSlots($business_hours, $day_of_week, $service_duration, $interval = 30) {
+    $time_slots = [];
+    
+    if (!isset($business_hours[$day_of_week]) || 
+        empty($business_hours[$day_of_week]['start']) || 
+        empty($business_hours[$day_of_week]['end'])) {
+        debug_log("曜日 $day_of_week の営業時間が設定されていません");
+        return $time_slots;
+    }
+    
+    $start_time = $business_hours[$day_of_week]['start'];
+    $end_time = $business_hours[$day_of_week]['end'];
+    
+    debug_log("曜日 $day_of_week の営業時間: $start_time - $end_time");
+    
+    return generateTimeSlotsFromRange($start_time, $end_time, $service_duration, $interval);
+}
+
+// 各日付のスタッフ別利用可能時間枠を生成
+$available_time_slots = [];
+$no_available_slots = true; // 利用可能な時間枠がないかどうかを追跡
+
+foreach ($calendar_days as $date => $day_info) {
+    if (!$day_info['is_business_day'] || $day_info['is_past']) {
+        continue;
+    }
+    
+    $day_of_week = $day_info['day_of_week'];
+    $available_time_slots[$date] = [];
+    
+    foreach ($staffs as $staff) {
+        $staff_id = $staff['staff_id'];
+        $available_time_slots[$date][$staff_id] = [];
+        
+        // 時間枠の生成方法を決定
+        // 1. スタッフのシフトが設定されている場合はそれを優先
+        // 2. シフトがなければサロンの営業時間を使用
+        
+        $time_slots_to_check = [];
+        
+        if (isset($staff_availability[$date][$staff_id])) {
+            // スタッフのシフトに基づいて時間枠を生成
+            $shift_start = $staff_availability[$date][$staff_id]['start_time'];
+            $shift_end = $staff_availability[$date][$staff_id]['end_time'];
+            
+            debug_log("スタッフID " . $staff_id . " の " . $date . " のシフト: " . $shift_start . " - " . $shift_end);
+            
+            $time_slots_to_check = generateTimeSlotsFromRange(
+                substr($shift_start, 0, 5), 
+                substr($shift_end, 0, 5), 
+                $service_total_duration
+            );
+        } else {
+            // シフトがない場合はサロンの営業時間に基づいて時間枠を生成
+            $time_slots_to_check = generateTimeSlots($business_hours, $day_of_week, $service_total_duration);
+        }
+        
+        // 今日の場合は、現在時刻より後の時間枠のみを利用可能にする
+        if ($date === date('Y-m-d')) {
+            $current_hour = date('H');
+            $current_minute = date('i');
+            $filtered_time_slots = [];
+            
+            foreach ($time_slots_to_check as $time) {
+                list($hour, $minute) = explode(':', $time);
+                // 現在時刻より1時間後以降の時間枠のみを含める
+                if ((int)$hour > ((int)$current_hour + 1) || 
+                    ((int)$hour === ((int)$current_hour + 1) && (int)$minute >= (int)$current_minute)) {
+                    $filtered_time_slots[] = $time;
+                }
+            }
+            
+            $time_slots_to_check = $filtered_time_slots;
+            debug_log("今日の利用可能時間枠（現在時刻以降）: " . json_encode($time_slots_to_check));
+        }
+        
+        // 各時間枠について、予約済みでないかチェック
+        foreach ($time_slots_to_check as $time) {
+            $is_available = true;
+            
+            // 予約済みスロットかチェック
+            $time_obj = new DateTime($time);
+            $end_time_obj = clone $time_obj;
+            $end_time_obj->modify('+' . $service_total_duration . ' minutes');
+            
+            $current_check = clone $time_obj;
+            
+            // 開始時間から終了時間までの全ての30分枠をチェック
+            while ($current_check < $end_time_obj) {
+                $check_key = $current_check->format('H:i');
+                
+                if (isset($booked_time_slots[$date][$staff_id][$check_key])) {
+                    $is_available = false;
+                    break;
+                }
+                
+                $current_check->modify('+30 minutes');
+            }
+            
+            if ($is_available) {
+                $available_time_slots[$date][$staff_id][] = $time;
+                $no_available_slots = false; // 少なくとも1つの利用可能な時間枠がある
+            }
+        }
+        
+        debug_log("スタッフID " . $staff_id . " の " . $date . " の利用可能時間枠: " . 
+                 json_encode($available_time_slots[$date][$staff_id]));
+    }
+}
+
+// テストデータ挿入部分を削除し、メッセージ表示用のフラグを設定
+$has_no_slots_message = false;
+if ($no_available_slots) {
+    $has_no_slots_message = true;
+    debug_log("利用可能な時間枠が一つもありません。");
+}
+
+// 選択中のサービス情報をセッションから取得
+$selected_services = [];
+if (isset($_SESSION['booking_services'])) {
+    $selected_services = $_SESSION['booking_services'];
+}
+
+// タイトル設定
+$salon_name = $salon['salon_name'] ?? 'サロン';
+$page_title = $salon_name . " - 日時選択";
+
+// 追加CSSファイルの設定
+$additional_css = ['css/select_datetime.css'];
+
+// 追加JSファイルの設定
+$additional_js = ['js/select_datetime.js'];
+
+// アクティブなステップを設定
+$active_step = 'datetime';
+
+// 現在の日付から7日間の日付配列を作成
+$dates = [];
+$weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+$today = new DateTime();
+
+for ($i = 0; $i < 7; $i++) {
+    $date = clone $today;
+    $date->modify("+$i days");
+    $dateKey = $date->format('Y-m-d');
+    $dates[$dateKey] = [
+        'date' => $dateKey,
+        'day' => $date->format('j'),
+        'month' => $date->format('n'),
+        'weekday' => $weekdays[$date->format('N') - 1], // 日本の曜日表記（0: 月 - 6: 日）
+        'is_today' => ($i === 0),
+        'is_business_day' => isset($business_hours[$date->format('N')]) && !empty($business_hours[$date->format('N')]['start'])
+    ];
+}
+
+// ヘッダーを読み込み
+include 'includes/header.php';
+include 'includes/booking_steps.php';
+?>
+
+<div class="booking-container">
+    <!-- ヘッダー部分 -->
+    <div class="booking-header">
+        <h1 class="booking-title">日時を選択</h1>
+        <p class="booking-subtitle">ご希望の日付、スタッフ、時間をお選びください</p>
+    </div>
+
+    <!-- デバッグセクション -->
+    <div id="debug-section" class="debug-section mb-4" style="display: none;">
+        <h5>🐞 デバッグ情報</h5>
+        <div>選択した日付: <span id="debug-selected-date">未選択</span></div>
+        <div>選択したスタッフ: <span id="debug-selected-staff">未選択</span></div>
+        <div>選択した時間: <span id="debug-selected-time">未選択</span></div>
+        <div class="mt-2">
+            <button onclick="toggleDebugMode()" class="btn btn-sm btn-secondary">デバッグモード切替</button>
+            <button onclick="testCalendarClick()" class="btn btn-sm btn-info ml-2">テスト選択実行</button>
+        </div>
+        <div class="mt-2">
+            <p><strong>システム情報:</strong></p>
+            <ul>
+                <li>サービス総時間: <?= $service_total_duration ?>分</li>
+                <li>サービス総額: <?= number_format($service_total_price) ?>円</li>
+                <li>サロンID: <?= $salon_id ?></li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- エラーメッセージ表示 -->
+    <div id="error-message" class="alert alert-danger" style="display: none;">
+        <i class="fas fa-exclamation-circle"></i>
+        <span id="error-text"></span>
+    </div>
+
+    <!-- 日付選択部分（タブ形式） -->
+    <section class="booking-section">
+        <div class="section-title">
+            <h2>1. 日付を選択</h2>
+        </div>
+        
+        <div class="date-tabs">
+            <?php foreach ($dates as $dateStr => $dateInfo): ?>
+                <?php 
+                    $isDisabled = !$dateInfo['is_business_day']; 
+                    $className = 'date-tab' . ($isDisabled ? ' disabled' : '');
+                    $onClick = $isDisabled ? '' : 'onclick="selectDate(\'' . $dateStr . '\')"';
+                ?>
+                <div class="<?= $className ?>" data-date="<?= $dateStr ?>" <?= $onClick ?>>
+                    <div class="date-tab-day"><?= $dateInfo['day'] ?></div>
+                    <div class="date-tab-weekday"><?= $dateInfo['weekday'] ?></div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </section>
+    
+    <!-- スタッフ選択部分 -->
+    <section id="staff-selection" class="booking-section" style="display: none;">
+        <div class="section-title">
+            <h2>2. スタッフを選択してください</h2>
+        </div>
+        
+        <div class="staff-list">
+            <?php if (!empty($staffs)): ?>
+                <div class="staff-card" onclick="selectStaff('0')">
+                    <div class="staff-header">
+                        <div class="staff-avatar" style="background-color: #f5f5f5; color: #757575">
+                            指定
+                        </div>
+                        <div class="staff-name">指名なし</div>
+                    </div>
+                    <div class="staff-details">
+                        <div class="available-slots-count">
+                            <i class="far fa-clock"></i> どのスタッフでも可
+                        </div>
+                    </div>
+                </div>
+                
+                <?php foreach ($staffs as $staff): ?>
+                    <div class="staff-card" onclick="selectStaff(<?= $staff['staff_id'] ?>)">
+                        <div class="staff-header">
+                            <?php if (!empty($staff['photo_url'])): ?>
+                                <img src="<?= htmlspecialchars($staff['photo_url']) ?>" alt="<?= htmlspecialchars($staff['name']) ?>" class="staff-avatar">
+                            <?php else: ?>
+                                <div class="staff-avatar" style="background-color: #<?= substr(md5($staff['name']), 0, 6); ?>">
+                                    <?= mb_substr($staff['name'], 0, 1, 'UTF-8'); ?>
+                                </div>
+                            <?php endif; ?>
+                            <div class="staff-name"><?= htmlspecialchars($staff['name']) ?></div>
+                        </div>
+                        <div class="staff-details">
+                            <div class="available-slots-count">
+                                <i class="far fa-clock"></i> 指名料 1,000円
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <div class="no-staff-message">スタッフが見つかりませんでした。別の日を選択してください。</div>
+            <?php endif; ?>
+        </div>
+    </section>
+    
+    <!-- 時間選択部分 -->
+    <section id="time-selection" class="booking-section" style="display: none;">
+        <div class="section-title">
+            <h2>3. 来店日時を選択してください</h2>
+        </div>
+        
+        <div class="time-slot-description">
+            <p>ご希望の来店日時を選択してください</p>
+        </div>
+        
+        <?php if ($has_no_slots_message): ?>
+        <div class="alert alert-warning" role="alert">
+            現在、予約可能な時間枠がありません。別の日付やスタッフを選択するか、お電話でのご予約をお願いいたします。
+            <br>
+            電話番号: <?= htmlspecialchars($salon['phone'] ?? '未設定') ?>
+        </div>
+        <?php endif; ?>
+        
+        <div class="time-slot-container">
+            <div class="time-slot-wrapper">
+                <!-- 時間枠はJavaScriptで動的に生成されます -->
+                <div class="time-slots-grid" id="time-slots-grid">
+                    <!-- ここに時間枠が表示されます -->
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- アクションボタン -->
+    <div class="action-buttons">
+        <a href="select_service.php" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> 戻る
+        </a>
+        <button id="next-btn" class="btn btn-primary" disabled>
+            次へ <i class="fas fa-arrow-right"></i>
+        </button>
+    </div>
+</div>
+
+<!-- CSS とJavaScriptのインクルード -->
+<link rel="stylesheet" href="css/select_datetime.css">
+<style>
+/* 時間枠のグリッド表示用スタイル */
+.time-slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.time-slot {
+    background-color: #f9f9f9;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px 8px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.time-slot:hover {
+    background-color: var(--primary-light);
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+}
+
+.time-slot.selected {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 3px 5px rgba(0,0,0,0.1);
+}
+
+.no-time-slots {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 30px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    color: var(--text-secondary);
+}
+</style>
+
+<!-- JavaScriptの変数設定 -->
+<script>
+// PHPの配列をJavaScriptのグローバル変数として定義
+var calendarDays = <?= json_encode($calendar_days) ?>;
+var staffData = <?= json_encode($staffs) ?>;
+var availableTimeSlots = <?= json_encode($available_time_slots) ?>;
+var dateData = <?= json_encode($dates) ?>;
+var serviceData = <?= json_encode($services) ?>;
+
+// デバッグログ出力
+console.log('カレンダーデータ:', calendarDays);
+console.log('スタッフデータ:', staffData);
+console.log('利用可能時間枠:', availableTimeSlots);
+console.log('選択されたサービス:', serviceData);
+
+// 選択状態を追跡する変数
+var selectedDate = null;
+var selectedStaffId = null;
+var selectedTime = null;
+
+// 日付選択関数
+function selectDate(date) {
+    console.log('日付選択:', date);
+    
+    // 以前の選択を解除
+    document.querySelectorAll('.date-tab').forEach(function(tab) {
+        tab.classList.remove('selected');
+    });
+    
+    // 新しい選択を適用
+    document.querySelector(`.date-tab[data-date="${date}"]`).classList.add('selected');
+    
+    // 選択された日付を保存
+    selectedDate = date;
+    
+    // デバッグ情報を更新
+    document.getElementById('debug-selected-date').textContent = date;
+    
+    // スタッフ選択セクションを表示
+    document.getElementById('staff-selection').style.display = 'block';
+    
+    // 時間選択セクションを非表示
+    document.getElementById('time-selection').style.display = 'none';
+    
+    // 選択をリセット
+    selectedStaffId = null;
+    selectedTime = null;
+    document.getElementById('debug-selected-staff').textContent = '未選択';
+    document.getElementById('debug-selected-time').textContent = '未選択';
+    
+    // スタッフカードの選択状態をリセット
+    document.querySelectorAll('.staff-card').forEach(function(card) {
+        card.classList.remove('selected');
+    });
+    
+    // 次へボタンの状態を更新
+    updateNextButtonState();
+    
+    // この日に利用可能なスタッフだけをハイライト
+    updateAvailableStaffForDate(date);
+    
+    // スクロール
+    document.getElementById('staff-selection').scrollIntoView({behavior: 'smooth'});
+}
+
+// 指定された日付に利用可能なスタッフを更新
+function updateAvailableStaffForDate(date) {
+    console.log('日付に基づくスタッフ可用性更新:', date);
+    
+    // 利用可能な時間枠を持つスタッフIDを収集
+    const availableStaffIds = [];
+    if (availableTimeSlots[date]) {
+        for (const staffId in availableTimeSlots[date]) {
+            if (availableTimeSlots[date][staffId] && availableTimeSlots[date][staffId].length > 0) {
+                availableStaffIds.push(staffId);
+            }
+        }
+    }
+    
+    console.log('利用可能なスタッフID:', availableStaffIds);
+    
+    // 各スタッフカードを更新
+    document.querySelectorAll('.staff-card').forEach(function(card) {
+        // 指名なしは常に選択可能
+        if (card.getAttribute('onclick') && card.getAttribute('onclick').includes('selectStaff(0)')) {
+            return;
+        }
+        
+        // スタッフIDを抽出
+        const onclickAttr = card.getAttribute('onclick');
+        if (!onclickAttr) return;
+        
+        const match = onclickAttr.match(/selectStaff\((\d+)\)/);
+        if (!match) return;
+        
+        const staffId = match[1];
+        
+        // 利用可能かどうかでクラスを更新
+        if (availableStaffIds.includes(staffId)) {
+            card.classList.remove('unavailable');
+            card.classList.add('available');
+            
+            // 利用可能な時間枠の数を表示
+            const timeSlotsCount = availableTimeSlots[date][staffId].length;
+            const slotsCountElement = card.querySelector('.available-slots-count');
+            if (slotsCountElement) {
+                slotsCountElement.innerHTML = `<i class="far fa-clock"></i> 予約可能枠: ${timeSlotsCount}`;
+            }
+        } else {
+            card.classList.remove('available');
+            card.classList.add('unavailable');
+            
+            const slotsCountElement = card.querySelector('.available-slots-count');
+            if (slotsCountElement) {
+                slotsCountElement.innerHTML = `<i class="far fa-clock"></i> 予約枠なし`;
+            }
+        }
+    });
+}
+
+// スタッフ選択関数
+function selectStaff(staffId) {
+    console.log('スタッフ選択:', staffId);
+    
+    // 選択不可能なスタッフが選択された場合は処理しない
+    if (staffId !== '0') {
+        const staffCard = document.querySelector(`.staff-card[onclick*="selectStaff(${staffId})"]`);
+        if (staffCard && staffCard.classList.contains('unavailable')) {
+            console.log('利用不可のスタッフが選択されました');
+            showError('選択された日付にはこのスタッフの予約可能枠がありません。別のスタッフを選択してください。');
+            return;
+        }
+    }
+    
+    // 以前の選択を解除
+    document.querySelectorAll('.staff-card').forEach(function(card) {
+        card.classList.remove('selected');
+    });
+    
+    // クリックされたスタッフカードを選択状態にする
+    if (staffId === '0') {
+        // 指名なしの場合
+        document.querySelector('.staff-card:first-child').classList.add('selected');
+    } else {
+        // 特定のスタッフを選択した場合
+        document.querySelectorAll('.staff-card').forEach(function(card) {
+            if (card.getAttribute('onclick') && card.getAttribute('onclick').includes(`selectStaff(${staffId})`)) {
+                card.classList.add('selected');
+            }
+        });
+    }
+    
+    // 選択されたスタッフIDを保存
+    selectedStaffId = staffId;
+    
+    // スタッフ名を特定
+    let staffName = '指名なし';
+    if (staffId !== '0') {
+        const staffObj = staffData.find(s => s.staff_id == staffId);
+        if (staffObj) {
+            staffName = staffObj.name;
+        }
+    }
+    
+    // デバッグ情報を更新
+    document.getElementById('debug-selected-staff').textContent = staffName;
+    
+    // 時間選択セクションを表示
+    document.getElementById('time-selection').style.display = 'block';
+    
+    // 時間枠を更新
+    updateTimeSlots(selectedDate, staffId);
+    
+    // 次へボタンの状態を更新
+    updateNextButtonState();
+    
+    // スクロール
+    document.getElementById('time-selection').scrollIntoView({behavior: 'smooth'});
+}
+
+// 時間枠を更新
+function updateTimeSlots(date, staffId) {
+    console.log('時間枠更新:', { date, staffId });
+    
+    // 時間枠コンテナをクリア
+    const timeGrid = document.getElementById('time-slots-grid');
+    timeGrid.innerHTML = '';
+    
+    // 時間枠のデータを取得
+    let timeSlots = [];
+    
+    // 指名なしの場合は、すべてのスタッフの時間枠を集約
+    if (staffId === '0') {
+        // 全スタッフの時間枠を集約
+        const allTimeSlotsSet = new Set();
+        
+        if (availableTimeSlots[date]) {
+            for (const staffId in availableTimeSlots[date]) {
+                availableTimeSlots[date][staffId].forEach(slot => allTimeSlotsSet.add(slot));
+            }
+        }
+        
+        timeSlots = Array.from(allTimeSlotsSet).sort();
+    } else {
+        // 特定のスタッフの時間枠を取得
+        if (availableTimeSlots[date] && availableTimeSlots[date][staffId]) {
+            timeSlots = availableTimeSlots[date][staffId].sort();
+        }
+    }
+    
+    console.log('利用可能な時間枠:', timeSlots);
+    
+    // 時間枠が一つもない場合のメッセージ
+    if (timeSlots.length === 0) {
+        const noSlots = document.createElement('div');
+        noSlots.className = 'no-time-slots';
+        noSlots.textContent = '選択した日付とスタッフの組み合わせでは、予約可能な時間がありません。';
+        timeGrid.appendChild(noSlots);
+        return;
+    }
+    
+    // 時間枠ごとに要素を作成
+    timeSlots.forEach(time => {
+        const timeSlot = document.createElement('div');
+        timeSlot.className = 'time-slot';
+        timeSlot.textContent = time;
+        timeSlot.onclick = function() {
+            selectTime(time);
+        };
+        timeGrid.appendChild(timeSlot);
+    });
+}
+
+// 時間選択関数
+function selectTime(time) {
+    console.log('時間選択:', time);
+    
+    // 以前の選択を解除
+    document.querySelectorAll('.time-slot').forEach(function(slot) {
+        slot.classList.remove('selected');
+    });
+    
+    // クリックされた時間を選択状態にする
+    document.querySelectorAll('.time-slot').forEach(function(slot) {
+        if (slot.textContent === time) {
+            slot.classList.add('selected');
+        }
+    });
+    
+    // 選択された時間を保存
+    selectedTime = time;
+    
+    // デバッグ情報を更新
+    document.getElementById('debug-selected-time').textContent = time;
+    
+    // 次へボタンの状態を更新
+    updateNextButtonState();
+}
+
+// 次へボタンの状態を更新
+function updateNextButtonState() {
+    const isValid = selectedDate && selectedStaffId && selectedTime;
+    document.getElementById('next-btn').disabled = !isValid;
+    
+    console.log('選択状態更新:', { 
+        isValid,
+        selectedDate,
+        selectedStaffId,
+        selectedTime
+    });
+}
+
+// 次へボタンのクリックイベント
+document.getElementById('next-btn').addEventListener('click', function() {
+    if (selectedDate && selectedStaffId && selectedTime) {
+        // 選択した情報の確認
+        console.log('送信予定の予約情報:', {
+            date: selectedDate,
+            staffId: selectedStaffId,
+            time: selectedTime,
+            serviceIds: serviceData.map(s => s.service_id),
+            totalDuration: serviceData.reduce((sum, s) => sum + parseInt(s.duration), 0),
+            totalPrice: serviceData.reduce((sum, s) => sum + parseInt(s.price), 0)
+        });
+        
+        // Ajax通信でセッションに保存
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'save_datetime_session.php', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        // 次のページへ移動
+                        window.location.href = 'input_info.php';
+                    } else {
+                        showError(response.message || 'セッションの保存に失敗しました。');
+                    }
+                } catch (e) {
+                    showError('応答の解析に失敗しました。');
+                    console.error('JSON解析エラー:', e, xhr.responseText);
+                }
+            } else {
+                showError('通信エラーが発生しました。再度お試しください。');
+                console.error('HTTPエラー:', xhr.status);
+            }
+        };
+        xhr.onerror = function() {
+            showError('通信エラーが発生しました。再度お試しください。');
+            console.error('ネットワークエラー');
+        };
+        
+        const data = `selected_date=${encodeURIComponent(selectedDate)}&selected_staff_id=${encodeURIComponent(selectedStaffId)}&selected_time=${encodeURIComponent(selectedTime)}`;
+        xhr.send(data);
+        
+        console.log('送信データ:', data);
+    } else {
+        showError('日付、スタッフ、時間をすべて選択してください。');
+    }
+});
+
+// デバッグモードの切り替え
+function toggleDebugMode() {
+    const debugSection = document.getElementById('debug-section');
+    if (debugSection.style.display === 'none') {
+        debugSection.style.display = 'block';
+        localStorage.setItem('debugMode', 'enabled');
+    } else {
+        debugSection.style.display = 'none';
+        localStorage.setItem('debugMode', 'disabled');
+    }
+}
+
+// エラーメッセージを表示
+function showError(message) {
+    document.getElementById('error-text').textContent = message;
+    document.getElementById('error-message').style.display = 'block';
+    
+    console.error('エラーメッセージ表示:', message);
+    
+    // 5秒後に自動的に消える
+    setTimeout(function() {
+        document.getElementById('error-message').style.display = 'none';
+    }, 5000);
+}
+
+// ページ読み込み時の処理
+document.addEventListener('DOMContentLoaded', function() {
+    // デバッグモードの状態を復元
+    if (localStorage.getItem('debugMode') === 'enabled') {
+        document.getElementById('debug-section').style.display = 'block';
+    }
+    
+    console.log('ページ読み込み完了');
+    console.log('デバッグモード:', localStorage.getItem('debugMode'));
+    
+    // 日付タブが存在する場合、自動的に最初の利用可能な日付を選択
+    if (document.querySelector('.date-tab:not(.disabled)')) {
+        const firstAvailableDate = document.querySelector('.date-tab:not(.disabled)').getAttribute('data-date');
+        if (firstAvailableDate) {
+            selectDate(firstAvailableDate);
+        }
+    }
+});
+
+// テスト選択実行（デバッグ用）
+function testCalendarClick() {
+    console.log('テスト選択実行');
+    
+    // 現在利用可能な日付を探す
+    let availableDate = null;
+    
+    // 日付の取得
+    for (const date in availableTimeSlots) {
+        if (Object.keys(availableTimeSlots[date]).length > 0) {
+            availableDate = date;
+            break;
+        }
+    }
+    
+    if (!availableDate) {
+        console.log('利用可能な日付が見つかりません');
+        showError('テスト選択用の利用可能な日付が見つかりません。');
+        return;
+    }
+    
+    console.log('利用可能な日付:', availableDate);
+    
+    // 日付選択
+    selectDate(availableDate);
+    
+    // 対応するDOMエレメントを強制的に選択
+    const dateTab = document.querySelector(`.date-tab[data-date="${availableDate}"]`);
+    if (dateTab) {
+        dateTab.classList.add('selected');
+    }
+    
+    // スタッフを探す
+    let availableStaffId = null;
+    
+    for (const staffId in availableTimeSlots[availableDate]) {
+        if (availableTimeSlots[availableDate][staffId] && 
+            availableTimeSlots[availableDate][staffId].length > 0) {
+            availableStaffId = staffId;
+            break;
+        }
+    }
+    
+    if (!availableStaffId) {
+        console.log('利用可能なスタッフが見つかりません');
+        // スタッフが見つからなければ指名なしを選択
+        availableStaffId = '0';
+    }
+    
+    console.log('利用可能なスタッフID:', availableStaffId);
+    
+    // スタッフ選択
+    selectStaff(availableStaffId);
+    
+    // 時間枠を取得
+    let availableTime = null;
+    
+    if (availableStaffId === '0') {
+        // 指名なしの場合は全スタッフの時間枠を確認
+        for (const staffId in availableTimeSlots[availableDate]) {
+            if (availableTimeSlots[availableDate][staffId] && 
+                availableTimeSlots[availableDate][staffId].length > 0) {
+                availableTime = availableTimeSlots[availableDate][staffId][0];
+                break;
+            }
+        }
+    } else {
+        // 特定のスタッフの場合
+        if (availableTimeSlots[availableDate][availableStaffId] && 
+            availableTimeSlots[availableDate][availableStaffId].length > 0) {
+            availableTime = availableTimeSlots[availableDate][availableStaffId][0];
+        }
+    }
+    
+    if (!availableTime) {
+        console.log('利用可能な時間枠が見つかりません');
+        showError('テスト選択用の利用可能な時間枠が見つかりません。');
+        return;
+    }
+    
+    console.log('利用可能な時間:', availableTime);
+    
+    // 時間選択
+    setTimeout(function() {
+        selectTime(availableTime);
+        
+        console.log('テスト選択完了', {
+            date: availableDate,
+            staffId: availableStaffId,
+            time: availableTime
+        });
+    }, 500);
+}
+</script>
+
+<?php
+// フッターを読み込み
+include 'includes/footer.php';
+?> 
+</html> 

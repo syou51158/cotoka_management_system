@@ -1,0 +1,153 @@
+{
+  "database": "cotoka_management_system",
+  "tables": {
+    "tenants": {
+      "description": "サービス契約者情報",
+      "columns": {
+        "tenant_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "company_name": {"type": "VARCHAR(100)", "constraints": ["NOT NULL"]},
+        "owner_name": {"type": "VARCHAR(100)"},
+        "email": {"type": "VARCHAR(100)", "constraints": ["NOT NULL"]},
+        "phone": {"type": "VARCHAR(20)"},
+        "subscription_plan": {"type": "ENUM", "values": ["free", "basic", "premium", "enterprise"], "default": "free"},
+        "subscription_status": {"type": "ENUM", "values": ["active", "trial", "expired", "cancelled"], "default": "trial"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "salons": {
+      "description": "サロン店舗情報",
+      "columns": {
+        "salon_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "name": {"type": "VARCHAR(100)", "constraints": ["NOT NULL"]},
+        "address": {"type": "TEXT"},
+        "phone": {"type": "VARCHAR(20)"},
+        "email": {"type": "VARCHAR(100)"},
+        "business_hours": {"type": "TEXT"},
+        "status": {"type": "ENUM", "values": ["active", "inactive"], "default": "active"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "staff": {
+      "description": "サロンスタッフ情報",
+      "columns": {
+        "staff_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "salon_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "salons", "column": "salon_id"}},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "user_id": {"type": "INT", "references": {"table": "users", "column": "user_id"}},
+        "first_name": {"type": "VARCHAR(50)", "constraints": ["NOT NULL"]},
+        "last_name": {"type": "VARCHAR(50)", "constraints": ["NOT NULL"]},
+        "email": {"type": "VARCHAR(100)"},
+        "phone": {"type": "VARCHAR(20)"},
+        "position": {"type": "VARCHAR(50)"},
+        "hire_date": {"type": "DATE"},
+        "status": {"type": "ENUM", "values": ["active", "inactive"], "default": "active"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "customers": {
+      "description": "顧客情報",
+      "columns": {
+        "customer_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "salon_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "salons", "column": "salon_id"}},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "first_name": {"type": "VARCHAR(50)", "constraints": ["NOT NULL"]},
+        "last_name": {"type": "VARCHAR(50)", "constraints": ["NOT NULL"]},
+        "email": {"type": "VARCHAR(100)"},
+        "phone": {"type": "VARCHAR(20)"},
+        "address": {"type": "TEXT"},
+        "birthday": {"type": "DATE"},
+        "notes": {"type": "TEXT"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "services": {
+      "description": "提供サービス情報",
+      "columns": {
+        "service_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "salon_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "salons", "column": "salon_id"}},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "name": {"type": "VARCHAR(100)", "constraints": ["NOT NULL"]},
+        "description": {"type": "TEXT"},
+        "duration": {"type": "INT", "constraints": ["NOT NULL"], "comment": "分単位"},
+        "price": {"type": "DECIMAL(10, 2)", "constraints": ["NOT NULL"]},
+        "status": {"type": "ENUM", "values": ["active", "inactive"], "default": "active"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "appointments": {
+      "description": "予約情報",
+      "columns": {
+        "appointment_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "salon_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "salons", "column": "salon_id"}},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "customer_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "customers", "column": "customer_id"}},
+        "staff_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "staff", "column": "staff_id"}},
+        "service_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "services", "column": "service_id"}},
+        "appointment_date": {"type": "DATE", "constraints": ["NOT NULL"]},
+        "start_time": {"type": "TIME", "constraints": ["NOT NULL"]},
+        "end_time": {"type": "TIME", "constraints": ["NOT NULL"]},
+        "status": {"type": "ENUM", "values": ["scheduled", "completed", "cancelled", "no-show"], "default": "scheduled"},
+        "notes": {"type": "TEXT"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "sales": {
+      "description": "売上情報",
+      "columns": {
+        "sale_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "salon_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "salons", "column": "salon_id"}},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "customer_id": {"type": "INT", "references": {"table": "customers", "column": "customer_id"}},
+        "staff_id": {"type": "INT", "references": {"table": "staff", "column": "staff_id"}},
+        "service_id": {"type": "INT", "references": {"table": "services", "column": "service_id"}},
+        "appointment_id": {"type": "INT", "references": {"table": "appointments", "column": "appointment_id"}},
+        "amount": {"type": "DECIMAL(10, 2)", "constraints": ["NOT NULL"]},
+        "sale_date": {"type": "DATE", "constraints": ["NOT NULL"]},
+        "payment_method": {"type": "ENUM", "values": ["cash", "credit_card", "debit_card", "transfer", "other"], "default": "cash"},
+        "memo": {"type": "TEXT"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "payments": {
+      "description": "支払い情報",
+      "columns": {
+        "payment_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "salon_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "salons", "column": "salon_id"}},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "appointment_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "appointments", "column": "appointment_id"}},
+        "amount": {"type": "DECIMAL(10, 2)", "constraints": ["NOT NULL"]},
+        "payment_method": {"type": "ENUM", "values": ["cash", "credit_card", "debit_card", "transfer", "other"]},
+        "payment_date": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"},
+        "notes": {"type": "TEXT"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    },
+    "users": {
+      "description": "システムユーザー情報",
+      "columns": {
+        "user_id": {"type": "INT", "constraints": ["PRIMARY KEY", "AUTO_INCREMENT"]},
+        "tenant_id": {"type": "INT", "constraints": ["NOT NULL"], "references": {"table": "tenants", "column": "tenant_id"}},
+        "username": {"type": "VARCHAR(50)", "constraints": ["NOT NULL"]},
+        "password": {"type": "VARCHAR(255)", "constraints": ["NOT NULL"]},
+        "email": {"type": "VARCHAR(100)", "constraints": ["NOT NULL"]},
+        "first_name": {"type": "VARCHAR(50)"},
+        "last_name": {"type": "VARCHAR(50)"},
+        "role": {"type": "ENUM", "values": ["tenant_admin", "manager", "staff"], "default": "staff"},
+        "status": {"type": "ENUM", "values": ["active", "inactive"], "default": "active"},
+        "created_at": {"type": "TIMESTAMP", "default": "CURRENT_TIMESTAMP"}
+      }
+    }
+  },
+  "relationships": [
+    {"from": {"table": "salons", "column": "tenant_id"}, "to": {"table": "tenants", "column": "tenant_id"}, "type": "many-to-one"},
+    {"from": {"table": "staff", "column": "salon_id"}, "to": {"table": "salons", "column": "salon_id"}, "type": "many-to-one"},
+    {"from": {"table": "customers", "column": "salon_id"}, "to": {"table": "salons", "column": "salon_id"}, "type": "many-to-one"},
+    {"from": {"table": "services", "column": "salon_id"}, "to": {"table": "salons", "column": "salon_id"}, "type": "many-to-one"},
+    {"from": {"table": "appointments", "column": "customer_id"}, "to": {"table": "customers", "column": "customer_id"}, "type": "many-to-one"},
+    {"from": {"table": "appointments", "column": "staff_id"}, "to": {"table": "staff", "column": "staff_id"}, "type": "many-to-one"},
+    {"from": {"table": "appointments", "column": "service_id"}, "to": {"table": "services", "column": "service_id"}, "type": "many-to-one"},
+    {"from": {"table": "sales", "column": "appointment_id"}, "to": {"table": "appointments", "column": "appointment_id"}, "type": "many-to-one"},
+    {"from": {"table": "payments", "column": "appointment_id"}, "to": {"table": "appointments", "column": "appointment_id"}, "type": "many-to-one"}
+  ]
+} 

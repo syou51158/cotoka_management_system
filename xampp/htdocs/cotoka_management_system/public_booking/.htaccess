@@ -1,0 +1,78 @@
+# ============================================================
+# COTOKA 予約システム 本番環境用 .htaccess 設定
+# ============================================================
+
+# 本番環境セットアップメモ:
+# 1. mod_rewrite モジュールが有効であることを確認する
+# 2. AllowOverride All がバーチャルホスト設定で有効になっていることを確認する
+# 3. ドメイン設定によっては RewriteBase の調整が必要
+#    （例: サブディレクトリにインストールする場合は RewriteBase /サブディレクトリ名/public_booking/ など）
+# 4. 証明書の設定を確認し、HTTPSリダイレクトを有効にする
+# 5. スラッグに日本語が含まれる場合はエンコードの問題が発生する可能性あり
+
+# シンプルなリライトルール
+RewriteEngine On
+
+# 本番環境では適切なRewriteBaseを設定（必要に応じてコメント解除して調整）
+# RewriteBase /public_booking/
+
+# 実際のファイルやディレクトリでない場合のみリライト
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# サロンスラッグのリライト（英数字、ハイフン、アンダースコアに加え、日本語文字も許可）
+RewriteRule ^(.+)$ index.php?slug=$1 [QSA,L]
+
+# 単純な形式のindex.phpアクセス場合の正規化（オプション）
+RewriteRule ^index\.php/$ index.php [R=301,L]
+
+# 本番環境用セキュリティ設定 (本番環境では必要に応じてコメント解除)
+# --------------------------------------------------------------
+# ディレクトリインデックスの無効化
+# Options -Indexes
+
+# httpsへのリダイレクト (SSL証明書がある場合)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# PHPファイル直接アクセス制限 (public_booking内のphpファイルには直接アクセスできる必要があるため注意)
+# <FilesMatch "^(?!index\.php|check_slug\.php|debug\.php|test\.php).*\.php$">
+#   Order deny,allow
+#   Deny from all
+# </FilesMatch>
+
+# セキュリティヘッダー設定
+# <IfModule mod_headers.c>
+#   Header set X-Content-Type-Options "nosniff"
+#   Header set X-XSS-Protection "1; mode=block"
+#   Header set X-Frame-Options "SAMEORIGIN"
+#   Header set Referrer-Policy "strict-origin-when-cross-origin"
+# </IfModule>
+
+# --------------------------------------------------------------
+# テスト用に一時的に無効化したルール（本番環境では削除）
+# --------------------------------------------------------------
+# RewriteEngine On
+# 
+# # mod_rewriteモジュールが有効か確認
+# <IfModule mod_rewrite.c>
+#     # ベースディレクトリを設定
+#     RewriteBase /public_booking/
+# 
+#     # 実際のファイルやディレクトリでない場合のみリライト
+#     RewriteCond %{REQUEST_FILENAME} !-f
+#     RewriteCond %{REQUEST_FILENAME} !-d
+#     
+#     # サロンスラッグ+ソースパラメータのURL形式を処理
+#     RewriteRule ^([a-zA-Z0-9\-_]+)/?$ index.php?slug=$1 [QSA,L]
+#     
+#     # index.phpのURL末尾スラッシュを正規化
+#     RewriteRule ^index\.php/$ index.php [R=301,L]
+# </IfModule>
+# 
+# # 日本語文字などがURLに含まれる場合のフォールバック
+# <IfModule mod_rewrite.c>
+#     RewriteCond %{REQUEST_FILENAME} !-f
+#     RewriteCond %{REQUEST_FILENAME} !-d
+#     RewriteRule ^(.*)$ index.php [QSA,L]
+# </IfModule> 

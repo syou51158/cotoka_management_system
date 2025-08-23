@@ -1,0 +1,864 @@
+<?php
+// 必要なファイルを読み込み
+require_once 'config/config.php';
+require_once 'classes/Database.php';
+require_once 'includes/functions.php';  // functions.phpが先に読み込まれるようにする
+
+// タイムゾーンを明示的に設定
+date_default_timezone_set('Asia/Tokyo');
+
+// ログインしていない場合はログインページにリダイレクト
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit;
+}
+
+// エラー表示を無効化（本番環境用）
+ini_set('display_errors', 0);
+error_reporting(0);
+
+// データベース接続エラーをキャッチ
+try {
+    $db = new Database();
+    $conn = $db->getConnection();
+} catch (Exception $e) {
+    // 致命的なエラー（接続できない場合）
+    $error_message = "データベース接続エラー：" . $e->getMessage();
+    // ヘッダーの読み込み
+    require_once 'includes/header.php';
+    echo '<div class="alert alert-danger m-3">' . $error_message . '</div>';
+    require_once 'includes/footer.php';
+    exit;
+}
+
+// 予約ステータス更新処理
+if (isset($_GET['action']) && $_GET['action'] == 'update_status' && isset($_GET['id']) && isset($_GET['status'])) {
+    $appointment_id = $_GET['id'];
+    $new_status = $_GET['status'];
+    $redirect_url = 'dashboard.php';
+    
+    try {
+        // 有効なステータス値かチェック
+        $valid_statuses = ['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'];
+        if (in_array($new_status, $valid_statuses)) {
+            // 最適化: インデックスを利用したUPDATE
+            $stmt = $conn->prepare("
+                UPDATE appointments 
+                SET 
+                    status = :status,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE 
+                    appointment_id = :id
+            ");
+            $stmt->bindParam(':status', $new_status);
+            $stmt->bindParam(':id', $appointment_id);
+            
+            if ($stmt->execute()) {
+                $_SESSION['success_message'] = '予約ステータスが更新されました。';
+                
+                // 完了ステータスに変更された場合、顧客の訪問回数と最終訪問日を更新
+                if ($new_status === 'completed') {
+                    $updateCustomerStmt = $conn->prepare("
+                        UPDATE customers c
+                        INNER JOIN appointments a ON c.customer_id = a.customer_id
+                        SET 
+                            c.visit_count = c.visit_count + 1,
+                            c.last_visit_date = a.appointment_date
+                        WHERE 
+                            a.appointment_id = :appointment_id
+                    ");
+                    $updateCustomerStmt->bindParam(':appointment_id', $appointment_id);
+                    $updateCustomerStmt->execute();
+                }
+            } else {
+                $_SESSION['error_message'] = 'ステータス更新中にエラーが発生しました。';
+            }
+        } else {
+            $_SESSION['error_message'] = '無効なステータス値です。';
+        }
+    } catch (PDOException $e) {
+        error_log("ステータス更新エラー: " . $e->getMessage());
+        $_SESSION['error_message'] = 'データベースエラーが発生しました。';
+    }
+    
+    header("Location: $redirect_url");
+    exit;
+}
+
+// 編集アクション - appointment_manager.phpの編集ページにリダイレクト
+if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['id'])) {
+    $appointment_id = $_GET['id'];
+    header("Location: appointment_manager.php?action=edit&id=$appointment_id");
+    exit;
+}
+
+// 詳細表示アクション - appointment_manager.phpの詳細ページにリダイレクト
+if (isset($_GET['action']) && $_GET['action'] == 'view' && isset($_GET['id'])) {
+    $appointment_id = $_GET['id'];
+    header("Location: appointment_manager.php?action=view&id=$appointment_id");
+    exit;
+}
+
+// 現在のサロンIDを取得
+$salon_id = getCurrentSalonId();
+error_log("DEBUG: 使用中のサロンID: " . $salon_id);
+if (!$salon_id) {
+    // サロンIDがない場合は、利用可能なサロンを取得して自動的にセット
+    require_once 'classes/User.php';
+    $userObj = new User($db);
+    $available_salons = $userObj->getAccessibleSalons($_SESSION['user_id']);
+    
+    if (!empty($available_salons)) {
+        $salon_id = $available_salons[0]['salon_id'];
+        setCurrentSalon($salon_id);
+        $_SESSION['salon_id'] = $salon_id; // 互換性のため
+        
+        // リダイレクトして、セッションを更新
+        header('Location: dashboard.php');
+        exit;
+    } else {
+        // アクセス可能なサロンがない場合
+        $error_message = "アクセス可能なサロンがありません。管理者に連絡してください。";
+        require_once 'includes/header.php';
+        echo '<div class="alert alert-danger m-3">' . $error_message . '</div>';
+        require_once 'includes/footer.php';
+        exit;
+    }
+}
+
+// 現在のテナントIDを取得
+$tenant_id = getCurrentTenantId() ? getCurrentTenantId() : null;
+
+// ページ固有のJavaScript
+$page_js = "";
+
+// ページタイトル
+$page_title = "ダッシュボード";
+
+// ヘッダーの読み込み
+require_once 'includes/header.php';
+
+// セッションメッセージの表示
+if (isset($_SESSION['success_message'])) {
+    echo '<div class="alert alert-success alert-dismissible fade show m-3" role="alert">';
+    echo '<i class="fas fa-check-circle me-2"></i>' . $_SESSION['success_message'];
+    echo '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    echo '</div>';
+    unset($_SESSION['success_message']);
+}
+
+if (isset($_SESSION['error_message'])) {
+    echo '<div class="alert alert-danger alert-dismissible fade show m-3" role="alert">';
+    echo '<i class="fas fa-exclamation-circle me-2"></i>' . $_SESSION['error_message'];
+    echo '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    echo '</div>';
+    unset($_SESSION['error_message']);
+}
+
+// エラーメッセージ表示用
+$errors = [];
+
+// 主要な統計情報を一度に取得（クエリの最適化）
+$statistics = [
+    'today_appointments' => 0,
+    'monthly_total' => 0,
+    'total_customers' => 0,
+    'pending_appointments' => 0
+];
+
+try {
+    // 最適化: 複数の統計情報を一つのクエリで取得
+    $statsQuery = $conn->prepare("
+        SELECT
+            (SELECT COUNT(*) FROM appointments 
+             WHERE DATE(appointment_date) = CURRENT_DATE() 
+             AND salon_id = :salon_id) AS today_appointments,
+            
+            (SELECT COUNT(*) FROM customers 
+             WHERE salon_id = :salon_id) AS total_customers,
+            
+            (SELECT COUNT(*) FROM appointments 
+             WHERE status = 'scheduled' 
+             AND salon_id = :salon_id) AS pending_appointments
+    ");
+    $statsQuery->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+    $statsQuery->execute();
+    $statsResult = $statsQuery->fetch(PDO::FETCH_ASSOC);
+    
+    if ($statsResult) {
+        $statistics['today_appointments'] = $statsResult['today_appointments'];
+        $statistics['total_customers'] = $statsResult['total_customers'];
+        $statistics['pending_appointments'] = $statsResult['pending_appointments'];
+    }
+} catch (PDOException $e) {
+    $errors[] = "統計データの取得に失敗しました。接続を確認してください。";
+    error_log("統計データ取得エラー: " . $e->getMessage());
+}
+
+// 今月の売上を取得
+$monthly_revenue = [];
+try {
+    // テーブルが存在するか確認
+    $stmt = $conn->query("SHOW TABLES LIKE 'sales'");
+    if ($stmt->rowCount() > 0) {
+        $month_start = date('Y-m-01');
+        $month_end = date('Y-m-t');
+        
+        error_log("DEBUG: 月間売上クエリで使用するサロンID: " . $salon_id);
+        
+        // 最適化: インデックスを使用した効率的なクエリ
+        $stmt = $conn->prepare("
+            SELECT 
+                DATE(sale_date) as month, 
+                SUM(amount) as total 
+            FROM 
+                sales 
+            WHERE 
+                sale_date BETWEEN :start AND :end 
+                AND salon_id = :salon_id 
+            GROUP BY 
+                DATE(sale_date)
+        ");
+        $stmt->bindParam(':start', $month_start, PDO::PARAM_STR);
+        $stmt->bindParam(':end', $month_end, PDO::PARAM_STR);
+        $stmt->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+        $stmt->execute();
+        $monthly_revenue = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 月間合計金額を計算
+        $statistics['monthly_total'] = 0;
+        foreach ($monthly_revenue as $day) {
+            $statistics['monthly_total'] += (float)$day['total'];
+        }
+    } else {
+        // エラーメッセージを変更し、警告レベルを下げる
+        $errors[] = "売上データを表示するには、salesテーブルが必要です。管理者にお問い合わせください。";
+    }
+} catch (PDOException $e) {
+    // エラーメッセージを変更
+    $errors[] = "売上データの取得中にエラーが発生しました。";
+    // エラーログに詳細を記録
+    error_log("売上データ取得エラー: " . $e->getMessage());
+}
+
+// 今日の予約を取得（最適化版）
+$todays_appointments = [];
+try {
+    error_log("DEBUG: 本日の予約クエリで使用するサロンID: " . $salon_id);
+    
+    // 最適化: インデックスを活用した効率的なクエリ
+    $stmt = $conn->prepare("
+        SELECT 
+            a.appointment_id,
+            a.appointment_date,
+            a.start_time,
+            a.end_time,
+            a.status,
+            a.notes,
+            a.is_confirmed,
+            c.customer_id,
+            c.first_name,
+            c.last_name,
+            c.phone,
+            s.name as service_name, 
+            s.duration,
+            s.price,
+            CONCAT(st.first_name, ' ', st.last_name) as staff_name 
+        FROM 
+            appointments a
+            INNER JOIN customers c ON a.customer_id = c.customer_id
+            INNER JOIN services s ON a.service_id = s.service_id
+            INNER JOIN staff st ON a.staff_id = st.staff_id
+        WHERE 
+            DATE(a.appointment_date) = CURRENT_DATE() 
+            AND a.salon_id = :salon_id
+        ORDER BY 
+            a.start_time ASC
+    ");
+    $stmt->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+    $stmt->execute();
+    $todays_appointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // デバッグ情報
+    error_log("DEBUG: 本日の予約取得: " . count($todays_appointments) . "件");
+} catch (PDOException $e) {
+    $errors[] = "本日の予約データの取得に失敗しました。接続を確認してください。";
+    error_log("予約データ取得エラー: " . $e->getMessage());
+}
+
+// 最近の顧客を取得（最適化版）
+$recent_customers = [];
+try {
+    error_log("DEBUG: 最近の顧客クエリで使用するサロンID: " . $salon_id);
+    
+    // 最適化: 効率的なクエリで、追加情報も取得
+    $stmt = $conn->prepare("
+        SELECT 
+            c.*,
+            (SELECT COUNT(*) FROM appointments WHERE customer_id = c.customer_id AND status = 'completed') as visit_count,
+            (SELECT MAX(appointment_date) FROM appointments WHERE customer_id = c.customer_id AND status = 'completed') as last_visit
+        FROM 
+            customers c
+        WHERE 
+            c.salon_id = :salon_id 
+        ORDER BY 
+            c.created_at DESC 
+        LIMIT 5
+    ");
+    $stmt->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+    $stmt->execute();
+    $recent_customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $errors[] = "最近の顧客データの取得に失敗しました";
+    error_log("顧客データ取得エラー: " . $e->getMessage());
+}
+
+// 人気のサービスを取得（最適化版）
+$popular_services = [];
+try {
+    error_log("DEBUG: 人気のサービスクエリで使用するサロンID: " . $salon_id);
+    
+    // 最適化: より効率的なクエリ構造
+    $stmt = $conn->prepare("
+        SELECT 
+            s.service_id,
+            s.name,
+            s.price,
+            COUNT(a.appointment_id) as appointment_count,
+            SUM(a.status = 'completed') as completed_count
+        FROM 
+            services s
+            LEFT JOIN appointments a ON s.service_id = a.service_id AND a.salon_id = :salon_id
+        WHERE 
+            s.salon_id = :salon_id2
+            AND s.status = 'active'
+        GROUP BY 
+            s.service_id
+        ORDER BY 
+            appointment_count DESC
+        LIMIT 5
+    ");
+    $stmt->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+    $stmt->bindParam(':salon_id2', $salon_id, PDO::PARAM_INT);
+    $stmt->execute();
+    $popular_services = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $errors[] = "人気サービスデータの取得に失敗しました";
+    error_log("人気サービスデータ取得エラー: " . $e->getMessage());
+}
+
+// 売上トレンドを取得（過去6ヶ月 - 最適化版）
+$revenue_data = []; // デフォルト値を設定
+$labels = [];
+
+try {
+    // テーブルが存在するか確認
+    $stmt = $conn->query("SHOW TABLES LIKE 'sales'");
+    $salesTableExists = ($stmt->rowCount() > 0);
+    
+    if ($salesTableExists) {
+        // 過去6ヶ月分のデータを一度に取得（最適化）
+        $sixMonthsAgo = date('Y-m-01', strtotime('-5 months'));
+        $thisMonthEnd = date('Y-m-t');
+        
+        error_log("DEBUG: 売上トレンドクエリで使用するサロンID: " . $salon_id);
+        
+        $stmt = $conn->prepare("
+            SELECT 
+                DATE_FORMAT(sale_date, '%Y-%m') as month, 
+                SUM(amount) as total 
+            FROM 
+                sales 
+            WHERE 
+                sale_date BETWEEN :start AND :end 
+                AND salon_id = :salon_id
+            GROUP BY 
+                DATE_FORMAT(sale_date, '%Y-%m')
+            ORDER BY 
+                month ASC
+        ");
+        $stmt->bindParam(':start', $sixMonthsAgo, PDO::PARAM_STR);
+        $stmt->bindParam(':end', $thisMonthEnd, PDO::PARAM_STR);
+        $stmt->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+        $stmt->execute();
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // データの整形
+        $monthly_data = [];
+        foreach ($results as $row) {
+            $month_parts = explode('-', $row['month']);
+            $year = $month_parts[0];
+            $month = $month_parts[1];
+            $month_name = date('M', mktime(0, 0, 0, $month, 10));
+            
+            $labels[] = $month_name . ' ' . $year;
+            $revenue_data[] = (float)$row['total'];
+        }
+    } else {
+        // サンプルデータで初期化
+        $labels = ['2023-01', '2023-02', '2023-03', '2023-04', '2023-05', '2023-06'];
+        $revenue_data = [0, 0, 0, 0, 0, 0];
+    }
+} catch (PDOException $e) {
+    error_log("売上トレンドデータ取得エラー: " . $e->getMessage());
+    // グラフ表示用のサンプルデータ
+    $labels = ['2023-01', '2023-02', '2023-03', '2023-04', '2023-05', '2023-06'];
+    $revenue_data = [0, 0, 0, 0, 0, 0];
+}
+
+// 以下の変数をJSONとしてJavaScriptに渡す
+$chart_data = [
+    'labels' => $labels,
+    'revenue' => $revenue_data
+];
+
+// JavaScript変数
+$js_chart_data = json_encode($chart_data);
+
+// デバッグ用: システム情報の表示
+if (defined('DEBUG_MODE') && DEBUG_MODE === true) {
+    echo '<div class="alert alert-secondary mt-3 mb-3">';
+    echo '<h5>システムデバッグ情報</h5>';
+    echo '<p>現在日時: ' . date('Y-m-d H:i:s') . '</p>';
+    echo '<p>サーバー情報: ' . php_uname() . '</p>';
+    echo '<p>PHP バージョン: ' . phpversion() . '</p>';
+    echo '<p>MySQLの日付: ' . $conn->query("SELECT CURRENT_DATE() as today")->fetch()['today'] . '</p>';
+    echo '</div>';
+}
+?>
+
+<div class="dashboard-container">
+    <!-- エラーメッセージはカード内に表示するものを除いて表示 -->
+    <?php 
+    $card_errors = [
+        "本日の予約データの取得に失敗しました。接続を確認してください。",
+        "売上データを表示するには、salesテーブルが必要です。管理者にお問い合わせください。"
+    ];
+    
+    // すでに正常に取得できているので、エラーから削除
+    if (($key = array_search("本日の予約データの取得に失敗しました。接続を確認してください。", $errors)) !== false) {
+        unset($errors[$key]);
+    }
+
+    $other_errors = array_filter($errors, function($error) use ($card_errors) {
+        return !in_array($error, $card_errors);
+    });
+    
+    if (!empty($other_errors)): 
+    ?>
+    <div class="alert-container">
+        <?php foreach($other_errors as $error): ?>
+            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i> <?php echo $error; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- カードセクション -->
+    <div class="stats-cards fade-in">
+        <div class="stats-card">
+            <div class="card-icon card-appointments">
+                <i class="fas fa-calendar-check"></i>
+            </div>
+            <div class="card-content">
+                <h3 class="card-number"><?php echo $statistics['today_appointments']; ?></h3>
+                <p class="card-label">本日の予約</p>
+            </div>
+            <div class="stats-detail">
+                <a href="appointment_manager.php?date=<?php echo date('Y-m-d'); ?>" class="card-link"></a>
+            </div>
+        </div>
+
+        <div class="stats-card">
+            <div class="card-icon card-revenue">
+                <i class="fas fa-yen-sign"></i>
+            </div>
+            <div class="card-content">
+                <h3 class="card-number"><?php echo number_format($statistics['monthly_total']); ?></h3>
+                <p class="card-label">今月の売上（円）</p>
+            </div>
+            <a href="sales.php" class="card-link"></a>
+        </div>
+
+        <div class="stats-card">
+            <div class="card-icon card-customers">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="card-content">
+                <h3 class="card-number"><?php echo $statistics['total_customers']; ?></h3>
+                <p class="card-label">顧客総数</p>
+            </div>
+            <a href="customers.php" class="card-link"></a>
+        </div>
+
+        <div class="stats-card">
+            <div class="card-icon card-pending">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="card-content">
+                <h3 class="card-number"><?php echo $statistics['pending_appointments']; ?></h3>
+                <p class="card-label">保留中の予約</p>
+            </div>
+            <div class="stats-detail">
+                <a href="appointment_manager.php?status=pending" class="card-link"></a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="dashboard-section today-appointments fade-in">
+                <div class="dashboard-section-header">
+                    <h2 class="dashboard-section-title">
+                        <i class="fas fa-calendar-day"></i> 今日の予約
+                    </h2>
+                    <a href="appointment_manager.php" class="dashboard-section-link">
+                        すべて表示 <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                
+                <?php if (empty($todays_appointments)): ?>
+                <div class="text-center p-4 empty-state">
+                    <i class="fas fa-calendar-plus mb-3 empty-state-icon"></i>
+                    <p class="mb-3">今日の予約はありません</p>
+                    <a href="appointment_manager.php?action=create" class="btn btn-primary btn-sm">
+                        <i class="fas fa-plus me-1"></i> 新規予約
+                    </a>
+                </div>
+                <?php else: ?>
+                <div class="table-responsive">
+                    <table id="todaysAppointmentsTable" class="table">
+                        <thead>
+                            <tr>
+                                <th>時間</th>
+                                <th>顧客</th>
+                                <th>サービス</th>
+                                <th>担当者</th>
+                                <th>状態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($todays_appointments as $appointment): ?>
+                            <tr>
+                                <td>
+                                    <span class="time-display">
+                                        <?php echo date('H:i', strtotime($appointment['start_time'])); ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <a href="customers.php?id=<?php echo $appointment['customer_id']; ?>" class="text-decoration-none">
+                                        <?php echo isset($appointment['last_name']) && isset($appointment['first_name']) ? $appointment['last_name'] . ' ' . $appointment['first_name'] : '顧客情報なし'; ?>
+                                    </a>
+                                </td>
+                                <td><?php echo isset($appointment['service_name']) ? $appointment['service_name'] : '未設定'; ?></td>
+                                <td><?php echo isset($appointment['staff_name']) ? $appointment['staff_name'] : '未設定'; ?></td>
+                                <td>
+                                    <span class="appointment-status status-<?php echo strtolower(str_replace('-', '_', $appointment['status'])); ?>">
+                                        <?php echo formatStatus($appointment['status']); ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="dropdownMenuButton<?php echo $appointment['appointment_id']; ?>" data-bs-toggle="dropdown" aria-expanded="false">
+                                            操作
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li>
+                                                <a href="dashboard.php?action=edit&id=<?php echo $appointment['appointment_id']; ?>" class="dropdown-item">
+                                                    <i class="fas fa-edit me-2 text-primary"></i>編集
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a href="dashboard.php?action=view&id=<?php echo $appointment['appointment_id']; ?>" class="dropdown-item">
+                                                    <i class="fas fa-eye me-2 text-info"></i>詳細
+                                                </a>
+                                            </li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            
+                                            <?php if ($appointment['status'] != 'completed'): ?>
+                                            <li>
+                                                <a href="dashboard.php?action=update_status&id=<?php echo $appointment['appointment_id']; ?>&status=completed" class="dropdown-item status-action">
+                                                    <i class="fas fa-check-circle me-2 text-success"></i>完了にする
+                                                </a>
+                                            </li>
+                                            <?php endif; ?>
+                                            
+                                            <?php if ($appointment['status'] != 'confirmed' && $appointment['status'] != 'completed'): ?>
+                                            <li>
+                                                <a href="dashboard.php?action=update_status&id=<?php echo $appointment['appointment_id']; ?>&status=confirmed" class="dropdown-item status-action">
+                                                    <i class="fas fa-clipboard-check me-2 text-primary"></i>確認済にする
+                                                </a>
+                                            </li>
+                                            <?php endif; ?>
+                                            
+                                            <?php if ($appointment['status'] != 'cancelled'): ?>
+                                            <li>
+                                                <a href="#" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#cancelModal<?php echo $appointment['appointment_id']; ?>">
+                                                    <i class="fas fa-ban me-2"></i>キャンセル
+                                                </a>
+                                            </li>
+                                            <?php endif; ?>
+                                            
+                                            <?php if ($appointment['status'] != 'no_show'): ?>
+                                            <li>
+                                                <a href="dashboard.php?action=update_status&id=<?php echo $appointment['appointment_id']; ?>&status=no_show" class="dropdown-item status-action">
+                                                    <i class="fas fa-user-slash me-2 text-warning"></i>無断キャンセル
+                                                </a>
+                                            </li>
+                                            <?php endif; ?>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php endif; ?>
+            </div>
+            
+            <div class="dashboard-section fade-in">
+                <div class="dashboard-section-header">
+                    <h2 class="dashboard-section-title">
+                        <i class="fas fa-chart-line"></i> 売上推移
+                    </h2>
+                </div>
+                <div class="chart-container p-3" style="position: relative; height: 300px;">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <div class="dashboard-section recent-customers fade-in">
+                <div class="dashboard-section-header">
+                    <h2 class="dashboard-section-title">
+                        <i class="fas fa-user-friends"></i> 最近の顧客
+                    </h2>
+                    <a href="customers.php" class="dashboard-section-link">
+                        すべて表示 <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                
+                <?php if (empty($recent_customers)): ?>
+                <div class="text-center p-4 empty-state">
+                    <i class="fas fa-users mb-3 empty-state-icon"></i>
+                    <p class="mb-0">顧客情報がありません</p>
+                </div>
+                <?php else: ?>
+                    <?php foreach ($recent_customers as $customer): ?>
+                    <div class="recent-customer-card">
+                        <div class="customer-avatar">
+                            <?php echo strtoupper(substr($customer['first_name'], 0, 1)); ?>
+                        </div>
+                        <div class="customer-info">
+                            <h4 class="customer-name"><?php echo $customer['last_name'] . ' ' . $customer['first_name']; ?></h4>
+                            <p class="customer-detail">
+                                <?php 
+                                if (!empty($customer['email'])) {
+                                    echo '<i class="fas fa-envelope me-1"></i> ' . $customer['email'] . '<br>';
+                                }
+                                if (!empty($customer['phone'])) {
+                                    echo '<i class="fas fa-phone me-1"></i> ' . $customer['phone'];
+                                }
+                                ?>
+                            </p>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+            
+            <div class="dashboard-section popular-services fade-in">
+                <div class="dashboard-section-header">
+                    <h2 class="dashboard-section-title">
+                        <i class="fas fa-star"></i> 人気サービス
+                    </h2>
+                    <a href="services.php" class="dashboard-section-link">
+                        すべて表示 <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                
+                <?php if (empty($popular_services)): ?>
+                <div class="text-center p-4 empty-state">
+                    <i class="fas fa-concierge-bell mb-3 empty-state-icon"></i>
+                    <p class="mb-0">サービスデータがありません</p>
+                </div>
+                <?php else: ?>
+                    <?php foreach ($popular_services as $index => $service): ?>
+                    <div class="popular-service-item">
+                        <h4 class="service-name"><?php echo $service['name']; ?></h4>
+                        <div class="service-meta">
+                            <span><i class="fas fa-calendar-check me-1"></i> <?php echo $service['appointment_count']; ?> 予約</span>
+                            <span><i class="fas fa-chart-bar me-1"></i> <?php echo number_format(($service['appointment_count'] / array_sum(array_column($popular_services, 'appointment_count'))) * 100, 1); ?>%</span>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- フッターを追加 -->
+<footer class="dashboard-footer">
+    <div class="container">
+        <div class="row">
+            <div class="col-md-6">
+                <p>&copy; 2023-2024 COTOKA BEAUTY MANAGEMENT SYSTEM <span class="version">v1.0.3</span></p>
+            </div>
+            <div class="col-md-6 text-end">
+                <a href="help.php">ヘルプ</a> | 
+                <a href="terms.php">利用規約</a> | 
+                <a href="privacy.php">プライバシーポリシー</a>
+            </div>
+        </div>
+    </div>
+</footer>
+
+<!-- JavaScriptコードを削除して、外部ファイルを読み込む -->
+<script src="assets/js/dashboard.js"></script>
+
+<?php require_once 'includes/footer.php'; ?>
+
+<?php if (defined('ENVIRONMENT') && ENVIRONMENT === 'development' && defined('DEBUG_MODE') && DEBUG_MODE === true): ?>
+<!-- デバッグパネル -->
+<div class="debug-panel" id="debugPanel">
+    <div class="debug-panel-title">
+        Debug Panel <button class="debug-panel-close-btn" id="closeDebugPanel">&times;</button>
+    </div>
+    <div class="debug-panel-content">
+        <div class="debug-panel-label">Viewport:</div>
+        <div class="debug-panel-value" id="debugViewport">-</div>
+        
+        <div class="debug-panel-label">Sidebar:</div>
+        <div class="debug-panel-value" id="debugSidebar">-</div>
+        
+        <div class="debug-panel-label">Dropdowns:</div>
+        <div class="debug-panel-value" id="debugDropdowns">-</div>
+        
+        <div class="debug-panel-label">Dashboard Container:</div>
+        <div class="debug-panel-value" id="debugContainer">-</div>
+        
+        <div class="debug-panel-label">Status Cards:</div>
+        <div class="debug-panel-value" id="debugStatusCards">-</div>
+        
+        <div class="debug-panel-label">CSS Files:</div>
+        <div class="debug-panel-value" id="debugCssFiles">-</div>
+        
+        <div class="debug-panel-label">Memory Usage:</div>
+        <div class="debug-panel-value" id="debugMemory">-</div>
+    </div>
+</div>
+
+<script>
+// デバッグパネル機能
+document.addEventListener('DOMContentLoaded', function() {
+    const debugPanel = document.getElementById('debugPanel');
+    const closeBtn = document.getElementById('closeDebugPanel');
+    
+    if (debugPanel && closeBtn) {
+        // ビューポートサイズの更新
+        function updateDebugInfo() {
+            document.getElementById('debugViewport').textContent = 
+                window.innerWidth + 'x' + window.innerHeight;
+                
+            document.getElementById('debugSidebar').textContent = 
+                document.querySelector('.sidebar') ? 'Found' : 'Not Found';
+                
+            document.getElementById('debugDropdowns').textContent = 
+                document.querySelectorAll('.dropdown').length;
+                
+            document.getElementById('debugContainer').textContent = 
+                document.querySelector('.dashboard-container') ? 'Found' : 'Not Found';
+                
+            document.getElementById('debugStatusCards').textContent = 
+                document.querySelectorAll('.status-card').length;
+                
+            document.getElementById('debugCssFiles').textContent = 
+                document.querySelectorAll('link[rel="stylesheet"]').length;
+                
+            document.getElementById('debugMemory').textContent = 
+                Math.round(performance.memory ? performance.memory.usedJSHeapSize / (1024 * 1024) : 0) + 'MB';
+        }
+        
+        // 初期更新
+        updateDebugInfo();
+        
+        // リサイズ時に更新
+        window.addEventListener('resize', updateDebugInfo);
+        
+        // パネルを閉じる
+        closeBtn.addEventListener('click', function() {
+            debugPanel.style.display = 'none';
+        });
+    }
+});
+</script>
+<?php endif; ?>
+
+<!-- 日本語の日付フォーマット関数 -->
+<?php
+// 日本語の曜日名
+function date_i18n($format, $timestamp = null) {
+    if ($timestamp === null) {
+        $timestamp = time();
+    }
+    
+    $weekday = date('w', $timestamp);
+    $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+    
+    $formatted_date = date($format, $timestamp);
+    $formatted_date = str_replace('(D)', '(' . $weekdays[$weekday] . ')', $formatted_date);
+    
+    return $formatted_date;
+}
+
+/**
+ * 予約状態を日本語表示に変換する
+ * 
+ * @param string $status 予約状態（英語）
+ * @return string 予約状態（日本語）
+ */
+function formatStatus($status) {
+    $statusMap = [
+        'pending' => '保留中',
+        'confirmed' => '確認済',
+        'completed' => '完了',
+        'cancelled' => 'キャンセル',
+        'no_show' => '無断キャンセル',
+        'no-show' => '無断キャンセル',
+        'delayed' => '遅延',
+        'scheduled' => '予約済'
+    ];
+    
+    return isset($statusMap[$status]) ? $statusMap[$status] : $status;
+}
+?>
+
+<?php if (!empty($todays_appointments)): ?>
+    <?php foreach ($todays_appointments as $appointment): ?>
+    <!-- キャンセル確認モーダル - 修正版 -->
+    <div class="modal fade" id="cancelModal<?php echo $appointment['appointment_id']; ?>" tabindex="-1" aria-labelledby="cancelModalLabel<?php echo $appointment['appointment_id']; ?>" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cancelModalLabel<?php echo $appointment['appointment_id']; ?>">予約キャンセルの確認</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p><strong><?php echo isset($appointment['last_name']) && isset($appointment['first_name']) ? $appointment['last_name'] . ' ' . $appointment['first_name'] : '顧客'; ?></strong>さんの<br>
+                    <?php echo date('Y年m月d日', strtotime($appointment['appointment_date'])); ?> <?php echo date('H:i', strtotime($appointment['start_time'])); ?>の予約をキャンセルしますか？</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+                    <a href="dashboard.php?action=update_status&id=<?php echo $appointment['appointment_id']; ?>&status=cancelled" class="btn btn-danger">キャンセルする</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endforeach; ?>
+<?php endif; ?> 

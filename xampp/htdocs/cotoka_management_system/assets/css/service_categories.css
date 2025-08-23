@@ -1,0 +1,185 @@
+/**
+ * サービスカテゴリー管理画面用のスタイル
+ */
+
+/* カラーピッカーのカスタマイズ */
+.color-options {
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.color-option {
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid #ddd;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+/* カラープレビュー */
+.color-preview {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    margin-right: 5px;
+    vertical-align: middle;
+    border: 1px solid #ddd;
+}
+
+/* 空の状態表示 */
+.empty-state {
+    padding: 40px 20px;
+    color: #6c757d;
+}
+
+.empty-state-icon {
+    font-size: 3rem;
+    opacity: 0.5;
+    display: block;
+}
+
+/* カラーピッカー入力欄 */
+input[type="color"] {
+    width: 50px;
+    height: 38px;
+    padding: 0 2px;
+    cursor: pointer;
+}
+
+/* カテゴリーバッジのスタイル */
+.badge {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: white;
+    display: inline-block;
+    border-radius: 4px;
+}
+
+/* テーブルの操作ボタン */
+.table .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.76563rem;
+}
+
+/* モバイル対応 */
+@media (max-width: 767.98px) {
+    .table th, .table td {
+        white-space: nowrap;
+    }
+    
+    /* モバイルでの余白調整 */
+    .container-fluid {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    
+    /* カラーピッカーのモバイル調整 */
+    .color-options {
+        gap: 5px;
+    }
+    
+    .color-option {
+        width: 25px;
+        height: 25px;
+    }
+    
+    /* カード要素の余白調整 */
+    .card-body {
+        padding: 1rem;
+    }
+    
+    /* テーブルヘッダーの最適化 */
+    .table thead th {
+        font-size: 0.9rem;
+    }
+}
+
+/* 統計カードのスタイル */
+.text-center h3 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+/* カテゴリー操作ボタン */
+.d-flex .btn-outline-primary {
+    color: #4e73df;
+    border-color: #4e73df;
+}
+
+.d-flex .btn-outline-primary:hover {
+    color: #fff;
+    background-color: #4e73df;
+    border-color: #4e73df;
+}
+
+.d-flex .btn-outline-danger {
+    color: #e74a3b;
+    border-color: #e74a3b;
+}
+
+.d-flex .btn-outline-danger:hover {
+    color: #fff;
+    background-color: #e74a3b;
+    border-color: #e74a3b;
+}
+
+/* アニメーション効果 */
+.badge {
+    transition: transform 0.2s ease;
+}
+
+.badge:hover {
+    transform: scale(1.05);
+}
+
+/**
+ * サービスカテゴリー管理ページのCSS
+ */
+
+/* カラーサンプル */
+.color-sample {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    margin-right: 5px;
+    vertical-align: middle;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* カラーピッカー */
+.form-control-color {
+    width: 50px;
+    height: 38px;
+    padding: 3px;
+    border-radius: 0.25rem 0 0 0.25rem;
+}
+
+/* モーダル関連 */
+.modal-title i {
+    margin-right: 8px;
+    color: #4e73df;
+}
+
+/* テーブル関連 */
+.table th {
+    background-color: #f8f9fc;
+    font-weight: 600;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+} 

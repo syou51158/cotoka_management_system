@@ -1,0 +1,194 @@
+/* 売上管理ページのスタイル */
+
+/* 売上統計カード */
+.sale-stats {
+    border-left: 4px solid #4e73df;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.sale-stats:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.sale-stats .text-xs {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+/* カード内のアイコン */
+.sale-stats .col-auto {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sale-stats .fa-2x {
+    color: #dddfeb;
+}
+
+/* 期間ナビゲーション */
+.date-navigation {
+    background-color: #f8f9fc;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+}
+
+.current-period {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+    color: #4e73df;
+}
+
+/* フィルターカード */
+.filter-card {
+    background-color: #f8f9fc;
+    border: none;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+}
+
+/* テーブルスタイル */
+.table th {
+    background-color: #f8f9fc;
+    font-weight: 600;
+    border-bottom: 2px solid #e3e6f0;
+}
+
+.table tbody tr {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.table tbody tr:hover {
+    background-color: rgba(78, 115, 223, 0.05);
+}
+
+/* タブメニュー */
+.nav-tabs .nav-link {
+    color: #5a5c69;
+    border: 1px solid transparent;
+}
+
+.nav-tabs .nav-link.active {
+    color: #4e73df;
+    border-bottom: 2px solid #4e73df;
+    font-weight: 600;
+}
+
+/* 売上行のカーソル表示 */
+.sale-row {
+    cursor: pointer;
+}
+
+/* 取引履歴行のカーソル表示 */
+.transaction-row {
+    cursor: pointer;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .table-responsive {
+        overflow-x: auto;
+    }
+    
+    .table th,
+    .table td {
+        white-space: nowrap;
+    }
+    
+    .sale-stats {
+        margin-bottom: 1rem;
+    }
+    
+    .current-period {
+        font-size: 1.2rem;
+    }
+}
+
+/* グラフコンテナ */
+.card-header {
+    font-weight: 600;
+    background-color: #f8f9fc;
+    border-bottom: 1px solid #e3e6f0;
+}
+
+.card-body {
+    padding: 1.25rem;
+}
+
+/* モーダルスタイル */
+.modal-header {
+    background-color: #4e73df;
+    color: white;
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+/* フラットピッカー */
+.flatpickr-calendar {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+
+.flatpickr-day.selected {
+    background-color: #4e73df;
+    border-color: #4e73df;
+}
+
+/* カスタムステータスバッジ */
+.badge {
+    padding: 0.25em 0.5em;
+    font-size: 0.75em;
+    font-weight: 600;
+    border-radius: 0.25rem;
+}
+
+/* フッター合計行 */
+tfoot tr {
+    background-color: #f8f9fc;
+    font-weight: 600;
+}
+
+/* 売上割合のバー表示 */
+.sales-percentage-bar {
+    height: 6px;
+    background-color: #e3e6f0;
+    border-radius: 3px;
+    margin-top: 4px;
+}
+
+.sales-percentage-value {
+    height: 100%;
+    background-color: #4e73df;
+    border-radius: 3px;
+}
+
+/* 印刷用の調整 */
+@media print {
+    .sidebar, .navbar, .btn-toolbar, .filter-card {
+        display: none !important;
+    }
+    
+    .container-fluid {
+        width: 100% !important;
+    }
+    
+    .card {
+        border: 1px solid #ddd !important;
+        page-break-inside: avoid;
+    }
+    
+    .tab-pane {
+        display: block !important;
+        opacity: 1 !important;
+        break-inside: avoid;
+    }
+    
+    .tab-pane:not(.active) {
+        display: none !important;
+    }
+} 

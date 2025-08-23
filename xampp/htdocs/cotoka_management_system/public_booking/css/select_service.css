@@ -1,0 +1,239 @@
+.service-category {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    margin-bottom: 2rem;
+    overflow: hidden;
+}
+
+.category-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(to right, rgba(233,30,99,0.05), rgba(0,0,0,0));
+}
+
+.category-header h3 {
+    margin: 0;
+    color: var(--primary-dark);
+    font-size: 1.4rem;
+    font-weight: bold;
+}
+
+.category-description {
+    color: #666;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.service-list {
+    padding: 0;
+}
+
+.service-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.service-table tr {
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.3s ease;
+    cursor: pointer;
+}
+
+.service-table tr:last-child {
+    border-bottom: none;
+}
+
+.service-table tr:hover {
+    background-color: rgba(233,30,99,0.05);
+}
+
+.service-table tr.selected {
+    background-color: rgba(233,30,99,0.1);
+}
+
+.service-table td {
+    padding: 1rem 1.5rem;
+    vertical-align: middle;
+}
+
+.service-checkbox {
+    width: 40px;
+}
+
+.service-checkbox input[type="checkbox"] {
+    transform: scale(1.2);
+    cursor: pointer;
+}
+
+.service-info {
+    width: 50%;
+}
+
+.service-name {
+    font-weight: bold;
+    color: #333;
+    display: block;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+}
+
+.service-description {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.service-duration {
+    white-space: nowrap;
+    color: #666;
+    text-align: center;
+    width: 15%;
+}
+
+.service-duration i {
+    margin-right: 0.3rem;
+    color: var(--primary-color);
+}
+
+.service-price {
+    white-space: nowrap;
+    font-weight: bold;
+    color: var(--primary-color);
+    text-align: right;
+    width: 15%;
+}
+
+.service-price i {
+    margin-right: 0.3rem;
+}
+
+.service-summary {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    padding: 1.5rem;
+    margin: 2rem 0;
+    display: none;
+}
+
+.summary-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px dashed #eee;
+}
+
+.summary-item:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.summary-item.total {
+    margin-top: 1rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #eee;
+    font-weight: bold;
+    color: var(--primary-dark);
+}
+
+.submit-button {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+    color: white;
+    border: none;
+    border-radius: 25px;
+    padding: 1.2rem 2.5rem;
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(233,30,99,0.2);
+    width: 100%;
+    margin-top: 2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.submit-button i {
+    margin-left: 0.5rem;
+}
+
+.submit-button:hover {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(233,30,99,0.3);
+}
+
+.submit-button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+@media (max-width: 991px) {
+    .service-info {
+        width: auto;
+    }
+    
+    .service-duration, .service-price {
+        width: auto;
+    }
+}
+
+@media (max-width: 767px) {
+    .service-table, .service-table tbody, .service-table tr, .service-table td {
+        display: block;
+        width: 100%;
+    }
+    
+    .service-table tr {
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        border: 1px solid #eee;
+        border-radius: 10px;
+    }
+    
+    .service-table td {
+        padding: 0.5rem;
+        border: none;
+    }
+    
+    .service-checkbox {
+        width: 100%;
+        display: flex;
+        justify-content: flex-start;
+        margin-bottom: 0.5rem;
+    }
+    
+    .service-info {
+        margin-bottom: 0.5rem;
+    }
+    
+    .service-duration, .service-price {
+        text-align: left;
+        margin-left: 2rem;
+    }
+    
+    .service-price {
+        margin-top: 0.5rem;
+    }
+}
+
+.session-info {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+    font-size: 0.9rem;
+    color: #666;
+    border-left: 4px solid var(--primary-color);
+}
+
+.session-info p {
+    margin-bottom: 0.5rem;
+}
+
+.session-info p:last-child {
+    margin-bottom: 0;
+} 

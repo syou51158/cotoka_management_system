@@ -1,0 +1,270 @@
+/* complete.css - 予約完了ページのスタイル */
+
+.complete-container {
+    max-width: 800px;
+    margin: 2rem auto 3rem;
+    padding: 0 15px;
+}
+
+.completion-card {
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.completion-header {
+    text-align: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.completion-header i {
+    font-size: 4rem;
+    color: #4CAF50;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+.completion-header h3 {
+    font-size: 1.6rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.completion-header p {
+    color: #666;
+    margin-bottom: 0;
+}
+
+.confirmation-code {
+    text-align: center;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.confirmation-code span {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 0.3rem;
+}
+
+.confirmation-code strong {
+    font-size: 1.5rem;
+    letter-spacing: 1px;
+    color: #333;
+}
+
+.completion-section {
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 1.5rem;
+}
+
+.completion-section h4 {
+    color: #333;
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+    position: relative;
+    padding-left: 0.8rem;
+    border-left: 4px solid var(--primary-color);
+}
+
+.complete-item {
+    display: flex;
+    margin-bottom: 0.8rem;
+}
+
+.complete-item:last-child {
+    margin-bottom: 0;
+}
+
+.complete-label {
+    width: 140px;
+    min-width: 140px;
+    color: #666;
+    padding: 0.5rem 1rem 0.5rem 0;
+}
+
+.complete-value {
+    flex: 1;
+    padding: 0.5rem 0;
+}
+
+.services-list {
+    margin-bottom: 1rem;
+}
+
+.service-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.8rem 0;
+    border-bottom: 1px dashed #eee;
+}
+
+.service-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0.5rem;
+}
+
+.service-name {
+    padding-right: 1rem;
+}
+
+.service-details {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.service-duration {
+    color: #666;
+    margin-right: 1rem;
+}
+
+.service-price {
+    font-weight: 500;
+}
+
+.total-price {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 0.8rem;
+    border-top: 1px solid #eee;
+    font-weight: 600;
+}
+
+.salon-info {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1.2rem;
+    margin-bottom: 1.5rem;
+}
+
+.salon-info h4 {
+    color: #333;
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.salon-detail {
+    display: flex;
+    margin-bottom: 1rem;
+}
+
+.salon-detail:last-child {
+    margin-bottom: 0;
+}
+
+.salon-detail i {
+    font-size: 1.2rem;
+    color: var(--primary-color);
+    margin-right: 1rem;
+    margin-top: 0.2rem;
+}
+
+.salon-detail-label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 0.2rem;
+}
+
+.salon-detail-value {
+    color: #333;
+}
+
+.completion-notes {
+    margin-bottom: 2rem;
+}
+
+.completion-notes p {
+    margin-bottom: 0.5rem;
+    padding-left: 1.5rem;
+    position: relative;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.completion-notes p i {
+    position: absolute;
+    left: 0;
+    top: 0.3rem;
+    color: var(--primary-color);
+}
+
+.completion-actions {
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.home-btn {
+    background-color: var(--primary-color);
+    color: #fff;
+    padding: 0.8rem 2rem;
+    border-radius: 50px;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.home-btn:hover {
+    background-color: var(--primary-dark);
+    text-decoration: none;
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.home-btn i {
+    margin-right: 0.5rem;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 767px) {
+    .completion-card {
+        padding: 1.5rem;
+    }
+    
+    .complete-item {
+        flex-direction: column;
+    }
+    
+    .complete-label {
+        width: 100%;
+        padding: 0.5rem 0 0.2rem;
+        font-weight: 500;
+    }
+    
+    .complete-value {
+        padding: 0.2rem 0 0.5rem;
+    }
+    
+    .service-item {
+        flex-direction: column;
+    }
+    
+    .service-details {
+        text-align: left;
+        margin-top: 0.3rem;
+    }
+    
+    .salon-detail {
+        flex-direction: column;
+    }
+    
+    .salon-detail i {
+        margin-bottom: 0.5rem;
+    }
+} 

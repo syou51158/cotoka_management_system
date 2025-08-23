@@ -1,0 +1,469 @@
+.info-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.info-container h2 {
+    color: #333;
+    margin-bottom: 10px;
+    font-size: 24px;
+    text-align: center;
+}
+
+.info-subtitle {
+    text-align: center;
+    color: #666;
+    margin-bottom: 30px;
+    font-size: 14px;
+}
+
+.error-message {
+    background-color: #fff5f5;
+    border-left: 4px solid #e45c84;
+    padding: 15px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: flex-start;
+}
+
+.error-message i {
+    color: #e45c84;
+    margin-right: 10px;
+    font-size: 20px;
+}
+
+.error-message ul {
+    margin: 5px 0 0 0;
+    padding-left: 20px;
+}
+
+.booking-summary {
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.booking-summary h3.service-title {
+    color: #333;
+    margin-top: 0;
+    font-size: 18px;
+    margin-bottom: 20px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+}
+
+.booking-summary h3.service-title::before {
+    content: "";
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--!Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2023 Fonticons, Inc.--><path fill="%233b82f6" d="M224 256A128 128 0 1 0 224 0a128 128 0 1 0 0 256zm-45.7 48C79.8 304 0 383.8 0 482.3C0 498.7 13.3 512 29.7 512H418.3c16.4 0 29.7-13.3 29.7-29.7C448 383.8 368.2 304 269.7 304H178.3z"/></svg>');
+    width: 24px;
+    height: 24px;
+    display: inline-block;
+    margin-right: 10px;
+    background-repeat: no-repeat;
+}
+
+.summary-details {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.summary-date {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 15px;
+}
+
+.service-list {
+    border-top: 1px solid #ddd;
+    border-bottom: 1px solid #ddd;
+    padding: 15px 0;
+}
+
+.summary-service {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 16px;
+}
+
+.summary-total, .total-price {
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+    font-size: 18px;
+    padding-top: 10px;
+}
+
+.customer-info-section {
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    margin-bottom: 30px;
+}
+
+.info-tabs {
+    display: flex;
+    flex-direction: column;
+}
+
+.info-tab-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.login-section {
+    padding: 30px;
+    background-color: #f8f0f3;
+    border-radius: 0;
+    position: relative;
+}
+
+.login-section::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background-color: #e45c84;
+}
+
+.login-section h3 {
+    color: #e45c84;
+    margin-top: 0;
+    margin-bottom: 25px;
+    font-size: 20px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+}
+
+.login-section h3::before {
+    content: "";
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--!Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2023 Fonticons, Inc.--><path fill="%23e45c84" d="M217.9 105.9L340.7 228.7c7.2 7.2 11.3 17.1 11.3 27.3s-4.1 20.1-11.3 27.3L217.9 406.1c-6.4 6.4-15 9.9-24 9.9c-18.7 0-33.9-15.2-33.9-33.9l0-62.1L32 320c-17.7 0-32-14.3-32-32l0-64c0-17.7 14.3-32 32-32l128 0 0-62.1c0-18.7 15.2-33.9 33.9-33.9c9 0 17.6 3.6 24 9.9zM352 416l64 0c17.7 0 32-14.3 32-32l0-256c0-17.7-14.3-32-32-32l-64 0c-17.7 0-32-14.3-32-32s14.3-32 32-32l64 0c53 0 96 43 96 96l0 256c0 53-43 96-96 96l-64 0c-17.7 0-32-14.3-32-32s14.3-32 32-32z"/></svg>');
+    width: 24px;
+    height: 24px;
+    display: inline-block;
+    margin-right: 10px;
+    background-repeat: no-repeat;
+}
+
+.register-section {
+    padding: 30px;
+    background-color: #fff;
+    position: relative;
+}
+
+.register-section::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background-color: #4a90e2;
+}
+
+.register-section h3 {
+    color: #4a90e2;
+    margin-top: 0;
+    margin-bottom: 25px;
+    font-size: 20px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+}
+
+.register-section h3::before {
+    content: "";
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--!Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2023 Fonticons, Inc.--><path fill="%234a90e2" d="M96 128a128 128 0 1 1 256 0A128 128 0 1 1 96 128zM0 482.3C0 383.8 79.8 304 178.3 304h91.4C368.2 304 448 383.8 448 482.3c0 16.4-13.3 29.7-29.7 29.7H29.7C13.3 512 0 498.7 0 482.3zM504 312V248H440c-13.3 0-24-10.7-24-24s10.7-24 24-24h64V136c0-13.3 10.7-24 24-24s24 10.7 24 24v64h64c13.3 0 24 10.7 24 24s-10.7 24-24 24H552v64c0 13.3-10.7 24-24 24s-24-10.7-24-24z"/></svg>');
+    width: 24px;
+    height: 24px;
+    display: inline-block;
+    margin-right: 10px;
+    background-repeat: no-repeat;
+}
+
+.form-group {
+    margin-bottom: 25px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+}
+
+.form-control, 
+input[type="text"], 
+input[type="email"], 
+input[type="password"],
+input[type="tel"],
+select {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.form-control:focus, 
+input[type="text"]:focus, 
+input[type="email"]:focus, 
+input[type="tel"]:focus,
+input[type="password"]:focus,
+select:focus {
+    border-color: #4a90e2;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+}
+
+.login-section .form-control:focus,
+.login-section input:focus {
+    border-color: #e45c84;
+    box-shadow: 0 0 0 3px rgba(228, 92, 132, 0.2);
+}
+
+.form-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 30px;
+}
+
+.btn {
+    padding: 12px 25px;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.back-btn {
+    background-color: #f0f0f0;
+    color: #333;
+    border: 1px solid #ddd;
+}
+
+.back-btn:hover {
+    background-color: #e0e0e0;
+    transform: translateY(-2px);
+}
+
+.next-btn {
+    background-color: #4a90e2;
+    color: white;
+    border: none;
+}
+
+.next-btn:hover {
+    background-color: #3a7bc8;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(74, 144, 226, 0.2);
+}
+
+.login-btn {
+    background-color: #e45c84;
+    color: white;
+    border: none;
+}
+
+.login-btn:hover {
+    background-color: #d1496e;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(228, 92, 132, 0.2);
+}
+
+.name-group, .password-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.radio-group, .date-group {
+    display: flex;
+    gap: 20px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 8px 0;
+}
+
+.radio-text {
+    margin-left: 8px;
+}
+
+.date-group .form-field {
+    flex: 1;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    cursor: pointer;
+}
+
+.checkbox-text {
+    margin-left: 10px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.form-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 0;
+}
+
+.required {
+    color: #e45c84;
+    margin-left: 3px;
+}
+
+.terms-agreement {
+    margin: 25px 0;
+    font-size: 14px;
+    color: #666;
+    line-height: 1.6;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 6px;
+}
+
+.terms-agreement a {
+    color: #4a90e2;
+    text-decoration: none;
+}
+
+.terms-agreement a:hover {
+    text-decoration: underline;
+}
+
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.alert-danger {
+    background-color: #fff5f5;
+    color: #e45c84;
+    border: 1px solid #fcc;
+}
+
+.is-invalid {
+    border-color: #e45c84 !important;
+}
+
+.remember-me {
+    margin-top: 20px;
+}
+
+.remember-note {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #666;
+    margin-left: 25px;
+    line-height: 1.5;
+}
+
+.password-reset {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.password-reset a {
+    color: #e45c84;
+    text-decoration: none;
+    font-size: 14px;
+    display: inline-block;
+    transition: all 0.3s ease;
+}
+
+.password-reset a:hover {
+    text-decoration: underline;
+    transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+    .name-group, .password-group {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .radio-group, .date-group {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .back-btn, .next-btn, .login-btn {
+        width: 100%;
+    }
+    
+    .login-section, .register-section {
+        padding: 20px;
+    }
+}
+
+/* 生年月日のセレクトボックス用スタイル調整 */
+.date-group select {
+    width: 100%;
+    height: 48px;
+    padding: 0 5px;
+    text-align: center;
+    text-align-last: center;
+    -moz-text-align-last: center;
+    font-size: 16px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="6" viewBox="0 0 12 6"><path fill="%23666" d="M0 0l6 6 6-6z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px 6px;
+}
+
+.date-group .form-group {
+    flex: 1;
+}
+
+/* セレクトボックス内の文字の調整 */
+select option {
+    text-align: center;
+    padding: 10px;
+}
+
+/* Safari用の調整 */
+@media screen and (-webkit-min-device-pixel-ratio:0) {
+    .date-group select {
+        padding-right: 25px;
+    }
+} 

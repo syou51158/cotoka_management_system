@@ -1,0 +1,47 @@
+/* Cotoka Management System - 共通変数 */
+
+:root {
+  /* ベースカラー */
+  --primary-color: #1a73e8;
+  --primary-gradient: linear-gradient(135deg, #B8860B 0%, #FFD700 100%);
+  --secondary-color: #d4af37; /* ゴールド */
+  --dark-gold: #bb8c10;
+  --light-gold: #e9d483;
+  --text-color: #333;
+  --light-text: #666;
+  --light-bg: #f8f9fa;
+  --dark-bg: #212529;
+  --card-bg: #fff;
+  
+  /* レイアウト */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 70px;
+  --header-height: 70px;
+  --transition-speed: 0.3s;
+  --border-radius: 8px;
+  --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  
+  /* グラデーション */
+  --luxury-gradient: linear-gradient(135deg, #212529 0%, #2c3137 100%);
+  --gold-gradient: linear-gradient(135deg, #d4af37 0%, #f2c94c 100%);
+  
+  /* 高級感のある色 */
+  --luxury-gold: #D4AF37;
+  --luxury-light-gold: #F8E9B6;
+  --luxury-bright-gold: #FFD700;
+  --luxury-dark-gold: #BE9B30;
+  --luxury-bg: #F8F5EF;
+  --luxury-secondary-bg: #F0EBE0;
+  --luxury-text: #4A3A1B;
+  --luxury-dark-text: #2C2415;
+  --luxury-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  --luxury-card-bg: rgba(255, 255, 255, 0.92);
+  --luxury-border: 1px solid rgba(190, 155, 48, 0.3);
+  --luxury-glow: 0 0 15px rgba(230, 198, 110, 0.6);
+  
+  /* その他 */
+  --luxury-text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  
+  /* ズームされないように */
+  touch-action: manipulation;
+} 

@@ -1,0 +1,205 @@
+/* 顧客管理ページのスタイル */
+
+/* クイック統計カード */
+.quick-stats {
+    border-left: 4px solid #4e73df;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.quick-stats:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.quick-stats .text-xs {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+/* 顧客テーブルスタイル */
+#customers-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#customers-table th {
+    background-color: #f8f9fc;
+    font-weight: 600;
+    border-bottom: 2px solid #e3e6f0;
+}
+
+#customers-table tbody tr {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+#customers-table tbody tr:hover {
+    background-color: rgba(78, 115, 223, 0.05);
+}
+
+/* ステータスバッジ */
+.badge-status {
+    padding: 0.25em 0.5em;
+    font-size: 0.75em;
+    font-weight: 600;
+    border-radius: 0.25rem;
+    text-transform: uppercase;
+}
+
+.badge-active {
+    background-color: #1cc88a;
+    color: #fff;
+}
+
+.badge-inactive {
+    background-color: #e74a3b;
+    color: #fff;
+}
+
+/* 顧客アバター */
+.customer-avatar {
+    width: 80px;
+    height: 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 50%;
+    overflow: hidden;
+    background-color: #f8f9fc;
+}
+
+/* フィルターカード */
+.filter-card {
+    background-color: #f8f9fc;
+    border: none;
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.075);
+}
+
+/* アクションボタン */
+.btn-action {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.btn-view {
+    color: #4e73df;
+}
+
+.btn-edit {
+    color: #1cc88a;
+}
+
+.btn-delete {
+    color: #e74a3b;
+}
+
+/* 顧客詳細モーダル */
+.customer-profile {
+    background-color: #f8f9fc;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+#customer-basic-info {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .table-responsive {
+        overflow-x: auto;
+    }
+    
+    #customers-table th,
+    #customers-table td {
+        white-space: nowrap;
+    }
+    
+    .quick-stats {
+        margin-bottom: 1rem;
+    }
+    
+    .customer-avatar {
+        width: 60px;
+        height: 60px;
+    }
+}
+
+/* ページネーション */
+.pagination .page-item .page-link {
+    color: #4e73df;
+    border: 1px solid #dddfeb;
+}
+
+.pagination .page-item.active .page-link {
+    background-color: #4e73df;
+    border-color: #4e73df;
+    color: #fff;
+}
+
+/* テーブル内のアクションボタン */
+.table-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.table-actions button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+/* 顧客フォーム */
+#customer-form label {
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+
+#customer-form input:focus,
+#customer-form select:focus,
+#customer-form textarea:focus {
+    border-color: #4e73df;
+    box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
+}
+
+/* モーダルスタイル */
+.modal-header {
+    background-color: #4e73df;
+    color: white;
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+/* ローディングインジケーター */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.loading-spinner {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* フラットピッカー */
+.flatpickr-calendar {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+
+.flatpickr-day.selected {
+    background-color: #4e73df;
+    border-color: #4e73df;
+} 

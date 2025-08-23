@@ -1,0 +1,5 @@
+修正が完了しました。次のファイルが更新されています:
+
+1. appointment_ledger.php - インラインスタイルを削除し、外部CSSファイルに移動
+2. assets/css/appointment_ledger.css - スタイル定義を最適化し、クラス名を統一
+3. assets/js/appointment_ledger.js - DOM操作を最適化し、パフォーマンスを改善
