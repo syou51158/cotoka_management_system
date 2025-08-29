@@ -96,9 +96,17 @@ $customers = [];
 
 // スタッフ一覧（Supabase RPCで初期オプションを用意）
 $staff = [];
-$staffRpc = supabaseRpcCall('staff_list_by_salon', ['p_tenant_id' => (int)$tenant_id]);
-if ($staffRpc['success']) {
-    $staff = is_array($staffRpc['data']) ? $staffRpc['data'] : [];
+$staffSql = "SELECT s.staff_id, s.first_name, s.last_name, s.email, s.phone, s.position, s.status\n               FROM cotoka.staff s\n               JOIN cotoka.staff_salons ss\n                 ON ss.staff_id = s.staff_id\n                AND ss.tenant_id = s.tenant_id\n              WHERE ss.salon_id = $salon_id\n                AND s.tenant_id = $tenant_id\n           ORDER BY s.staff_id DESC";
+$staffRes = supabaseRpcCall('execute_sql', ['query' => $staffSql]);
+if ($staffRes['success']) {
+    $staff = is_array($staffRes['data']) ? $staffRes['data'] : [];
+} else {
+    // フォールバック: テナント全体のスタッフ
+    $staffSql2 = "SELECT staff_id, first_name, last_name, email, phone, position, status\n                    FROM cotoka.staff\n                   WHERE tenant_id = $tenant_id\n                ORDER BY staff_id DESC";
+    $staffRes2 = supabaseRpcCall('execute_sql', ['query' => $staffSql2]);
+    if ($staffRes2['success']) {
+        $staff = is_array($staffRes2['data']) ? $staffRes2['data'] : [];
+    }
 }
 
 // サービス一覧（初期表示はJSでAPIから取得するため空で可）
@@ -653,4 +661,4 @@ require_once 'includes/header.php';
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ja.js"></script>
 <script src="assets/js/appointment_manager/appointment_manager.js"></script>
 
-<?php require_once 'includes/footer.php'; ?> 
+<?php require_once 'includes/footer.php'; ?>

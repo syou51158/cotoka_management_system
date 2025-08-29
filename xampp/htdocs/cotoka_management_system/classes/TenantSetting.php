@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/classes/Database.php';
 /**
  * TenantSetting クラス
  * 
@@ -11,8 +13,7 @@ class TenantSetting {
      * コンストラクタ
      */
     public function __construct() {
-        require_once dirname(__DIR__) . '/classes/Database.php';
-        $this->db = new Database();
+        $this->db = Database::getInstance();
     }
     
     /**
@@ -26,7 +27,6 @@ class TenantSetting {
     public function get($tenant_id, $key, $default = null) {
         // テナントIDがnullの場合は現在のテナントIDを取得
         if ($tenant_id === null) {
-            // getCurrentTenantId関数はすでに定義されているとする
             $tenant_id = getCurrentTenantId();
             if (!$tenant_id) {
                 return $default;
@@ -34,21 +34,15 @@ class TenantSetting {
         }
         
         try {
-            $sql = "SELECT setting_value FROM tenant_settings 
-                    WHERE tenant_id = ? AND setting_key = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->bindParam(1, $tenant_id, PDO::PARAM_INT);
-            $stmt->bindParam(2, $key, PDO::PARAM_STR);
-            $stmt->execute();
-            
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($row) {
+            $row = $this->db->fetchOne('tenant_settings', [
+                'tenant_id' => (int)$tenant_id,
+                'setting_key' => $key,
+            ], 'setting_value');
+            if ($row && isset($row['setting_value'])) {
                 return $row['setting_value'];
-            } else {
-                return $default;
             }
+            return $default;
         } catch (Exception $e) {
-            // エラーログを記録
             if (function_exists('logError')) {
                 logError('テナント設定取得エラー: ' . $e->getMessage(), [
                     'tenant_id' => $tenant_id,
@@ -68,7 +62,6 @@ class TenantSetting {
      * @return bool 成功した場合はtrue、失敗した場合はfalse
      */
     public function set($tenant_id, $key, $value) {
-        // テナントIDがnullの場合は現在のテナントIDを取得
         if ($tenant_id === null) {
             $tenant_id = getCurrentTenantId();
             if (!$tenant_id) {
@@ -77,35 +70,30 @@ class TenantSetting {
         }
         
         try {
-            // 既存の設定があるか確認
-            $sql = "SELECT setting_id FROM tenant_settings 
-                    WHERE tenant_id = ? AND setting_key = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->bindParam(1, $tenant_id, PDO::PARAM_INT);
-            $stmt->bindParam(2, $key, PDO::PARAM_STR);
-            $stmt->execute();
+            $existing = $this->db->fetchOne('tenant_settings', [
+                'tenant_id' => (int)$tenant_id,
+                'setting_key' => $key,
+            ], 'setting_id');
             
-            if ($stmt->rowCount() > 0) {
+            if ($existing) {
                 // 更新
-                $sql = "UPDATE tenant_settings SET setting_value = ? 
-                        WHERE tenant_id = ? AND setting_key = ?";
-                $stmt = $this->db->prepare($sql);
-                $stmt->bindParam(1, $value, PDO::PARAM_STR);
-                $stmt->bindParam(2, $tenant_id, PDO::PARAM_INT);
-                $stmt->bindParam(3, $key, PDO::PARAM_STR);
+                $ok = $this->db->update('tenant_settings', [
+                    'setting_value' => (string)$value,
+                ], [
+                    'tenant_id' => (int)$tenant_id,
+                    'setting_key' => $key,
+                ]);
+                return (bool)$ok;
             } else {
                 // 新規作成
-                $sql = "INSERT INTO tenant_settings (tenant_id, setting_key, setting_value) 
-                        VALUES (?, ?, ?)";
-                $stmt = $this->db->prepare($sql);
-                $stmt->bindParam(1, $tenant_id, PDO::PARAM_INT);
-                $stmt->bindParam(2, $key, PDO::PARAM_STR);
-                $stmt->bindParam(3, $value, PDO::PARAM_STR);
+                $res = $this->db->insert('tenant_settings', [
+                    'tenant_id' => (int)$tenant_id,
+                    'setting_key' => $key,
+                    'setting_value' => (string)$value,
+                ]);
+                return is_array($res);
             }
-            
-            return $stmt->execute();
         } catch (Exception $e) {
-            // エラーログを記録
             if (function_exists('logError')) {
                 logError('テナント設定保存エラー: ' . $e->getMessage(), [
                     'tenant_id' => $tenant_id,
@@ -124,7 +112,6 @@ class TenantSetting {
      * @return bool 成功した場合はtrue、失敗した場合はfalse
      */
     public function delete($tenant_id, $key) {
-        // テナントIDがnullの場合は現在のテナントIDを取得
         if ($tenant_id === null) {
             $tenant_id = getCurrentTenantId();
             if (!$tenant_id) {
@@ -133,14 +120,11 @@ class TenantSetting {
         }
         
         try {
-            $sql = "DELETE FROM tenant_settings 
-                    WHERE tenant_id = ? AND setting_key = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->bindParam(1, $tenant_id, PDO::PARAM_INT);
-            $stmt->bindParam(2, $key, PDO::PARAM_STR);
-            return $stmt->execute();
+            return $this->db->delete('tenant_settings', [
+                'tenant_id' => (int)$tenant_id,
+                'setting_key' => $key,
+            ]);
         } catch (Exception $e) {
-            // エラーログを記録
             if (function_exists('logError')) {
                 logError('テナント設定削除エラー: ' . $e->getMessage(), [
                     'tenant_id' => $tenant_id,
@@ -158,7 +142,6 @@ class TenantSetting {
      * @return array 設定の連想配列
      */
     public function getAllSettings($tenant_id = null) {
-        // テナントIDがnullの場合は現在のテナントIDを取得
         if ($tenant_id === null) {
             $tenant_id = getCurrentTenantId();
             if (!$tenant_id) {
@@ -167,20 +150,17 @@ class TenantSetting {
         }
         
         try {
-            $sql = "SELECT setting_key, setting_value FROM tenant_settings 
-                    WHERE tenant_id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->bindParam(1, $tenant_id, PDO::PARAM_INT);
-            $stmt->execute();
-            
+            $rows = $this->db->fetchAll('tenant_settings', [
+                'tenant_id' => (int)$tenant_id,
+            ], 'setting_key,setting_value');
             $settings = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $settings[$row['setting_key']] = $row['setting_value'];
+            foreach ($rows as $row) {
+                if (isset($row['setting_key'])) {
+                    $settings[$row['setting_key']] = $row['setting_value'] ?? null;
+                }
             }
-            
             return $settings;
         } catch (Exception $e) {
-            // エラーログを記録
             if (function_exists('logError')) {
                 logError('テナント全設定取得エラー: ' . $e->getMessage(), [
                     'tenant_id' => $tenant_id

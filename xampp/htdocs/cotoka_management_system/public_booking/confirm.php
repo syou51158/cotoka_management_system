@@ -371,16 +371,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
         
         // 予約サービスを登録
         foreach ($selected_services as $service) {
-            $serviceStmt = $conn->prepare("
-                INSERT INTO appointment_services (
-                    appointment_id, service_id, price, duration,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, NOW(), NOW())
-            ");
+            $serviceStmt = $conn->prepare("\n                INSERT INTO appointment_services (\n                    appointment_id, service_id, tenant_id, price, duration,\n                    created_at, updated_at\n                ) VALUES (?, ?, ?, ?, ?, NOW(), NOW())\n            ");
             
             $serviceStmt->execute([
                 $appointment_id,
                 $service['service_id'],
+                $tenant_id,
                 $service['price'],
                 $service['duration']
             ]);

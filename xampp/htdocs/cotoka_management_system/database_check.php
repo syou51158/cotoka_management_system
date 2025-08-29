@@ -8,56 +8,55 @@ error_reporting(E_ALL);
 ini_set('log_errors', 1);
 ini_set('error_log', 'C:/xampp/php/logs/php_error.log');
 
-echo "<h1>データベース診断ツール</h1>";
+echo "<h1>Supabaseデータベース診断ツール</h1>";
 
 // 設定ファイルを読み込み
 require_once 'config/config.php';
+require_once 'classes/Database.php';
 
 // PHPバージョン情報
 echo "<h2>PHPバージョン情報</h2>";
 echo "<p>PHP バージョン: " . phpversion() . "</p>";
 echo "<p>PDO サポート: " . (extension_loaded('pdo') ? '有効' : '無効') . "</p>";
-echo "<p>PDO MySQL サポート: " . (extension_loaded('pdo_mysql') ? '有効' : '無効') . "</p>";
+echo "<p>PDO PostgreSQL サポート: " . (extension_loaded('pdo_pgsql') ? '有効' : '無効') . "</p>";
 
-// データベース接続情報の表示
-echo "<h2>データベース設定</h2>";
+// Supabase接続情報の表示
+echo "<h2>Supabaseデータベース設定</h2>";
 echo "<ul>";
-echo "<li>ホスト: " . DB_HOST . "</li>";
-echo "<li>ユーザー: " . DB_USER . "</li>";
-echo "<li>データベース名: " . DB_NAME . "</li>";
-echo "<li>文字セット: " . DB_CHARSET . "</li>";
+echo "<li>Supabase URL: " . (defined('SUPABASE_URL') ? SUPABASE_URL : '未設定') . "</li>";
+echo "<li>Supabase Service Role Key: " . (defined('SUPABASE_SERVICE_ROLE_KEY') ? '設定済み' : '未設定') . "</li>";
+echo "<li>Supabase Anon Key: " . (defined('SUPABASE_ANON_KEY') ? '設定済み' : '未設定') . "</li>";
 echo "</ul>";
 
-// データベース接続テスト
-echo "<h2>接続テスト</h2>";
+// Supabaseデータベース接続テスト
+echo "<h2>Supabase接続テスト</h2>";
 try {
-    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
-    $options = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ];
+    $database = new Database();
+    $pdo = $database->getConnection();
+    echo "<p style='color:green'>✓ Supabaseデータベース接続に成功しました！</p>";
     
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-    echo "<p style='color:green'>✓ データベース接続に成功しました！</p>";
-    
-    // データベースの存在確認
-    echo "<h3>データベース '{" . DB_NAME . "}' の確認</h3>";
-    $stmt = $pdo->query("SELECT DATABASE() as db_name");
+    // 現在のスキーマ確認
+    echo "<h3>現在のスキーマ確認</h3>";
+    $stmt = $pdo->query("SELECT current_schema() as schema_name");
     $result = $stmt->fetch();
-    echo "<p>現在のデータベース: {$result['db_name']}</p>";
+    echo "<p>現在のスキーマ: {$result['schema_name']}</p>";
+    
+    // 利用可能なスキーマ確認
+    $stmt = $pdo->query("SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('cotoka', 'public')");
+    $schemas = $stmt->fetchAll();
+    echo "<p>利用可能なスキーマ: " . implode(', ', array_column($schemas, 'schema_name')) . "</p>";
     
     // 必要なテーブルの存在確認
-    $required_tables = ['users', 'roles', 'tenants', 'salons', 'remember_tokens'];
+    $required_tables = ['users', 'roles', 'tenants', 'salons', 'remember_tokens', 'appointments', 'customers', 'services', 'service_categories', 'staff'];
     echo "<h3>必要なテーブルの確認</h3>";
     echo "<ul>";
     foreach ($required_tables as $table) {
-        $stmt = $pdo->query("SHOW TABLES LIKE '{$table}'");
+        $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema IN ('cotoka', 'public') AND table_name = '{$table}'");
         if ($stmt->rowCount() > 0) {
             echo "<li style='color:green'>✓ {$table}テーブルが存在します</li>";
             
             // テーブルのレコード数を確認
-            $stmt = $pdo->query("SELECT COUNT(*) as count FROM {$table}");
+            $stmt = $pdo->query("SELECT COUNT(*) as count FROM cotoka.{$table}");
             $count = $stmt->fetch()['count'];
             echo "<ul><li>レコード数: {$count}</li></ul>";
         } else {
@@ -67,76 +66,75 @@ try {
     echo "</ul>";
     
     // usersテーブルの構造確認（存在する場合）
-    $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
+    $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema IN ('cotoka', 'public') AND table_name = 'users'");
     if ($stmt->rowCount() > 0) {
         echo "<h3>usersテーブルの構造</h3>";
-        $stmt = $pdo->query("DESCRIBE users");
+        $stmt = $pdo->query("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema IN ('cotoka', 'public') AND table_name = 'users' ORDER BY ordinal_position");
         echo "<table border='1'>";
-        echo "<tr><th>フィールド</th><th>タイプ</th><th>NULL</th><th>キー</th><th>デフォルト</th><th>その他</th></tr>";
+        echo "<tr><th>カラム名</th><th>データ型</th><th>NULL許可</th><th>デフォルト値</th></tr>";
         while ($row = $stmt->fetch()) {
             echo "<tr>";
-            foreach ($row as $key => $value) {
-                echo "<td>" . htmlspecialchars($value ?? 'NULL') . "</td>";
-            }
+            echo "<td>" . htmlspecialchars($row['column_name']) . "</td>";
+            echo "<td>" . htmlspecialchars($row['data_type']) . "</td>";
+            echo "<td>" . htmlspecialchars($row['is_nullable']) . "</td>";
+            echo "<td>" . htmlspecialchars($row['column_default'] ?? 'NULL') . "</td>";
             echo "</tr>";
         }
         echo "</table>";
     }
     
     // rolesテーブルの構造確認（存在する場合）
-    $stmt = $pdo->query("SHOW TABLES LIKE 'roles'");
+    $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema IN ('cotoka', 'public') AND table_name = 'roles'");
     if ($stmt->rowCount() > 0) {
         echo "<h3>rolesテーブルの構造</h3>";
-        $stmt = $pdo->query("DESCRIBE roles");
+        $stmt = $pdo->query("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema IN ('cotoka', 'public') AND table_name = 'roles' ORDER BY ordinal_position");
         echo "<table border='1'>";
-        echo "<tr><th>フィールド</th><th>タイプ</th><th>NULL</th><th>キー</th><th>デフォルト</th><th>その他</th></tr>";
+        echo "<tr><th>カラム名</th><th>データ型</th><th>NULL許可</th><th>デフォルト値</th></tr>";
         while ($row = $stmt->fetch()) {
             echo "<tr>";
-            foreach ($row as $key => $value) {
-                echo "<td>" . htmlspecialchars($value ?? 'NULL') . "</td>";
-            }
+            echo "<td>" . htmlspecialchars($row['column_name']) . "</td>";
+            echo "<td>" . htmlspecialchars($row['data_type']) . "</td>";
+            echo "<td>" . htmlspecialchars($row['is_nullable']) . "</td>";
+            echo "<td>" . htmlspecialchars($row['column_default'] ?? 'NULL') . "</td>";
             echo "</tr>";
         }
         echo "</table>";
     }
     
-    // データベースの作成方法を表示
-    echo "<h3>データベースセットアップ方法</h3>";
-    echo "<p>データベースが存在しない場合は、以下の手順で作成してください：</p>";
+    // Supabaseセットアップ方法を表示
+    echo "<h3>Supabaseデータベースセットアップ方法</h3>";
+    echo "<p>Supabaseデータベースが正しく設定されていることを確認してください：</p>";
     echo "<ol>";
-    echo "<li>XAMPPのコントロールパネルからMySQLを起動</li>";
-    echo "<li>phpMyAdminにアクセス（<a href='http://localhost/phpmyadmin/' target='_blank'>http://localhost/phpmyadmin/</a>）</li>";
-    echo "<li>左側のメニューから「新規作成」をクリック</li>";
-    echo "<li>データベース名に 'cotoka_management' を入力</li>";
-    echo "<li>照合順序は 'utf8mb4_general_ci' を選択</li>";
-    echo "<li>「作成」ボタンをクリック</li>";
+    echo "<li>config/config.phpでSupabase設定が正しく設定されている</li>";
+    echo "<li>SUPABASE_URL、SUPABASE_SERVICE_ROLE_KEY、SUPABASE_ANON_KEYが設定されている</li>";
+    echo "<li>Supabaseプロジェクトでcotokaスキーマが作成されている</li>";
+    echo "<li>必要なテーブルがcotokaスキーマに作成されている</li>";
     echo "</ol>";
     
-    // セットアップスクリプトの実行方法
-    echo "<h3>セットアップスクリプトの実行</h3>";
-    echo "<p>データベースを作成した後、以下のリンクからセットアップスクリプトを実行してください：</p>";
-    echo "<p><a href='database/setup_db.php' class='btn btn-primary'>データベースセットアップを実行</a></p>";
+    // Supabaseテーブル作成スクリプトの実行方法
+    echo "<h3>Supabaseテーブル作成</h3>";
+    echo "<p>テーブルが存在しない場合は、以下のリンクからSupabaseテーブル作成スクリプトを実行してください：</p>";
+    echo "<p><a href='create_supabase_tables.php' class='btn btn-primary'>Supabaseテーブル作成を実行</a></p>";
     
-} catch (PDOException $e) {
-    echo "<p style='color:red'>✗ データベース接続エラー: " . $e->getMessage() . "</p>";
+} catch (Exception $e) {
+    echo "<p style='color:red'>✗ Supabaseデータベース接続エラー: " . $e->getMessage() . "</p>";
     echo "<h3>考えられる原因:</h3>";
     echo "<ul>";
-    echo "<li>データベース '" . DB_NAME . "' が存在しない</li>";
-    echo "<li>ユーザー '" . DB_USER . "' のアクセス権限がない</li>";
-    echo "<li>パスワードが間違っている</li>";
-    echo "<li>MySQLサーバーが実行されていない</li>";
+    echo "<li>SUPABASE_URLが正しく設定されていない</li>";
+    echo "<li>SUPABASE_SERVICE_ROLE_KEYが正しく設定されていない</li>";
+    echo "<li>Supabaseプロジェクトがアクティブでない</li>";
+    echo "<li>ネットワーク接続に問題がある</li>";
+    echo "<li>PDO PostgreSQLドライバーがインストールされていない</li>";
     echo "</ul>";
     
-    // データベースの作成方法を表示
-    echo "<h3>データベースの作成方法</h3>";
-    echo "<p>データベースが存在しない場合は、以下の手順で作成してください：</p>";
+    // Supabase設定確認方法を表示
+    echo "<h3>Supabase設定確認方法</h3>";
+    echo "<p>Supabase接続に問題がある場合は、以下を確認してください：</p>";
     echo "<ol>";
-    echo "<li>XAMPPのコントロールパネルからMySQLを起動</li>";
-    echo "<li>phpMyAdminにアクセス（<a href='http://localhost/phpmyadmin/' target='_blank'>http://localhost/phpmyadmin/</a>）</li>";
-    echo "<li>左側のメニューから「新規作成」をクリック</li>";
-    echo "<li>データベース名に 'cotoka_management' を入力</li>";
-    echo "<li>照合順序は 'utf8mb4_general_ci' を選択</li>";
-    echo "<li>「作成」ボタンをクリック</li>";
+    echo "<li>config/config.phpでSupabase設定を確認</li>";
+    echo "<li>SupabaseダッシュボードでプロジェクトURLとAPIキーを確認</li>";
+    echo "<li>PostgreSQLドライバーがインストールされているか確認</li>";
+    echo "<li>ネットワーク接続を確認</li>";
     echo "</ol>";
 }
 ?>

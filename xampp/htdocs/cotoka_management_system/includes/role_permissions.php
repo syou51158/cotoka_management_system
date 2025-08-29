@@ -129,6 +129,11 @@ function userHasPermission($feature, $permission = 'view') {
     }
     
     $userRole = getUserRole();
+
+    // グローバル管理者は全機能にアクセス可能
+    if ($userRole === 'admin') {
+        return true;
+    }
     
     // ロール権限設定をチェック
     if (isset($ROLE_PERMISSIONS[$userRole][$feature])) {

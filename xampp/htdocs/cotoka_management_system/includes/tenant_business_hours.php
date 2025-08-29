@@ -38,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         // 新しい営業時間を挿入
         $insertStmt = $db->prepare("INSERT INTO salon_business_hours 
-                                  (salon_id, day_of_week, open_time, close_time, is_closed, created_at, updated_at) 
-                                  VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
+                                  (salon_id, tenant_id, day_of_week, open_time, close_time, is_closed, created_at, updated_at) 
+                                  VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())");
 
         // 曜日ごとに処理
         $days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -51,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             $insertStmt->execute([
                 $salon_id,
+                getCurrentTenantId(),
                 $dayIndex,
                 $openTime,
                 $closeTime,
@@ -222,4 +223,4 @@ $dayNames = [
             </div>
         <?php endif; ?>
     </div>
-</div> 
+</div>

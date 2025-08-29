@@ -16,6 +16,7 @@
 // 必要なファイルの読み込み
 require_once '../../config/config.php';
 require_once '../../classes/Database.php';
+require_once '../../classes/Appointment.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/auth_middleware.php';
 
@@ -63,7 +64,7 @@ $status = $_POST['status'];
 
 // 有効なステータスかチェック
 $valid_statuses = ['confirmed', 'cancelled', 'pending', 'no-show'];
-if (!in_array($status, $valid_statuses)) {
+if (!in_array($status, $valid_statuses, true)) {
     echo json_encode([
         'success' => false,
         'message' => '無効なステータスです。有効なステータス: ' . implode(', ', $valid_statuses)
@@ -72,39 +73,23 @@ if (!in_array($status, $valid_statuses)) {
 }
 
 try {
-    // データベース接続
-    $db = new Database();
-    $conn = $db->getConnection();
-    
-    // 現在のサロンIDを取得
-    $salon_id = isset($_SESSION['salon_id']) ? $_SESSION['salon_id'] : 1;
-    
-    // 指定された予約が存在するか、かつ現在のサロンに属しているか確認
-    $stmt = $conn->prepare("
-        SELECT appointment_id 
-        FROM appointments 
-        WHERE appointment_id = ? AND salon_id = ?
-    ");
-    $stmt->execute([$appointment_id, $salon_id]);
-    
-    if ($stmt->rowCount() === 0) {
+    $appointment = new Appointment();
+    $salon_id = isset($_SESSION['salon_id']) ? (int)$_SESSION['salon_id'] : 1;
+
+    // 予約の存在と所属サロン確認
+    $record = $appointment->getAppointmentById($appointment_id);
+    if (!$record || (isset($record['salon_id']) && (int)$record['salon_id'] !== $salon_id)) {
         echo json_encode([
             'success' => false,
             'message' => '指定された予約が見つからないか、このサロンに属していません。'
         ]);
         exit;
     }
-    
-    // 予約ステータスの更新
-    $stmt = $conn->prepare("
-        UPDATE appointments 
-        SET status = ?, updated_at = NOW() 
-        WHERE appointment_id = ?
-    ");
-    $stmt->execute([$status, $appointment_id]);
-    
-    // 更新が成功したかどうかを確認
-    if ($stmt->rowCount() > 0) {
+
+    // ステータス更新
+    $ok = $appointment->updateAppointmentStatus($appointment_id, $status);
+
+    if ($ok) {
         echo json_encode([
             'success' => true,
             'message' => '予約ステータスが正常に更新されました。',
@@ -117,14 +102,12 @@ try {
             'message' => '予約ステータスの更新に失敗しました。'
         ]);
     }
-    
-} catch (PDOException $e) {
+} catch (Exception $e) {
     // エラーログ
     error_log('予約ステータス更新エラー: ' . $e->getMessage());
-    
+
     echo json_encode([
         'success' => false,
-        'message' => 'データベースエラー：予約ステータスの更新に失敗しました。',
-        'error_detail' => DEBUG_MODE ? $e->getMessage() : null
+        'message' => '内部エラー：予約ステータスの更新に失敗しました。'
     ]);
-} 
+}

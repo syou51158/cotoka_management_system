@@ -1,0 +1,149 @@
+﻿<br />
+<b>Notice</b>:  session_start(): Ignoring session_start() because a session is already active in <b>C:\xampp\htdocs\cotoka_management_system\register.php</b> on line <b>6</b><br />
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ユーザー登録 - COTOKA Salon Management System</title>
+    <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body class="bg-light">
+    <div class="container">
+        <div class="row justify-content-center mt-5">
+            <div class="col-md-8">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white">
+                        <h3 class="mb-0">COTOKA Salon Management System - ユーザー登録</h3>
+                    </div>
+                    <div class="card-body">
+                                                    
+                                                            <div class="alert alert-danger">
+                                    <ul class="mb-0">
+                                                                                    <li>ユーザー登録に失敗しました。HTTPコード: 429, レスポンス: {"code":429,"error_code":"over_email_send_rate_limit","msg":"For security purposes, you can only request this after 46 seconds."}</li>
+                                                                            </ul>
+                                </div>
+                                                        
+                            <form method="POST" action="">
+                                <input type="hidden" name="csrf_token" value="014c7dd44c10dde625c432b1684c372f2ad737a6d25a1d77faafddea48467a1c">
+                                
+                                <div class="mb-4">
+                                    <h5>基本情報</h5>
+                                    <hr>
+                                    <div class="mb-3">
+                                        <label for="name" class="form-label">お名前 <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="name" name="name" required value="Test User">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="email" class="form-label">メールアドレス <span class="text-danger">*</span></label>
+                                        <input type="email" class="form-control" id="email" name="email" required value="test@cotoka.jp">
+                                        <small class="text-muted">このメールアドレスでログインします</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <h5>所属情報</h5>
+                                    <hr>
+                                    <div class="mb-3">
+                                        <label for="tenant_id" class="form-label">所属する会社/サロン <span class="text-danger">*</span></label>
+                                        <select class="form-select" id="tenant_id" name="tenant_id" required>
+                                            <option value="">-- 選択してください --</option>
+                                                                                            <option value="1" selected>
+                                                    Trend Company株式会社                                                </option>
+                                                                                    </select>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="salon_id" class="form-label">勤務先サロン <span class="text-danger">*</span></label>
+                                        <select class="form-select" id="salon_id" name="salon_id" required >
+                                            <option value="">-- 先に会社/サロンを選択してください --</option>
+                                                                                            <option value="1">
+                                                    Cotoka美容室 渋谷店                                                </option>
+                                                                                    </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <h5>パスワード設定</h5>
+                                    <hr>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="password" class="form-label">パスワード <span class="text-danger">*</span></label>
+                                            <input type="password" class="form-control" id="password" name="password" required minlength="6">
+                                            <small class="text-muted">6文字以上で入力してください</small>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="confirm_password" class="form-label">パスワード (確認) <span class="text-danger">*</span></label>
+                                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required minlength="6">
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-grid gap-2">
+                                    <button type="submit" class="btn btn-primary">登録する</button>
+                                    <a href="login.php" class="btn btn-link">既にアカウントをお持ちの方はこちら</a>
+                                </div>
+                            </form>
+                                            </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="assets/js/bootstrap.bundle.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 会社/サロン選択時にサロン一覧を動的に更新
+        const tenantSelect = document.getElementById('tenant_id');
+        const salonSelect = document.getElementById('salon_id');
+        
+        if (tenantSelect && salonSelect) {
+            tenantSelect.addEventListener('change', function() {
+                const tenantId = this.value;
+                
+                if (tenantId) {
+                    // AJAX リクエストでサロン一覧を取得
+                    fetch('ajax/get_salons.php?tenant_id=' + tenantId)
+                        .then(response => response.json())
+                        .then(data => {
+                            // サロン選択肢を更新
+                            salonSelect.innerHTML = '';
+                            
+                            if (data.length === 0) {
+                                const option = document.createElement('option');
+                                option.value = '';
+                                option.textContent = '-- このテナントにはサロンがありません --';
+                                salonSelect.appendChild(option);
+                                salonSelect.disabled = true;
+                            } else {
+                                const defaultOption = document.createElement('option');
+                                defaultOption.value = '';
+                                defaultOption.textContent = '-- サロンを選択してください --';
+                                salonSelect.appendChild(defaultOption);
+                                
+                                data.forEach(salon => {
+                                    const option = document.createElement('option');
+                                    option.value = salon.salon_id;
+                                    option.textContent = salon.salon_name;
+                                    salonSelect.appendChild(option);
+                                });
+                                
+                                salonSelect.disabled = false;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching salons:', error);
+                        });
+                } else {
+                    // テナントが選択されていない場合
+                    salonSelect.innerHTML = '<option value="">-- 先に会社/サロンを選択してください --</option>';
+                    salonSelect.disabled = true;
+                }
+            });
+        }
+    });
+    </script>
+</body>
+</html>

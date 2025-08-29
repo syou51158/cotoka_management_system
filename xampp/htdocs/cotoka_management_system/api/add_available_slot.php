@@ -115,11 +115,13 @@ try {
     $total_count = count($dates);
     
     foreach ($dates as $insert_date) {
-        $query = "INSERT INTO available_slots (salon_id, staff_id, date, start_time, end_time, created_at) 
-                 VALUES (:salon_id, :staff_id, :date, :start_time, :end_time, NOW())";
+        $query = "INSERT INTO available_slots (salon_id, tenant_id, staff_id, date, start_time, end_time, created_at) 
+                 VALUES (:salon_id, :tenant_id, :staff_id, :date, :start_time, :end_time, NOW())";
                  
         $stmt = $conn->prepare($query);
         $stmt->bindParam(':salon_id', $salon_id, PDO::PARAM_INT);
+        $tenant_id = getCurrentTenantId();
+        $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
         $stmt->bindParam(':staff_id', $staff_id, PDO::PARAM_INT);
         $stmt->bindParam(':date', $insert_date, PDO::PARAM_STR);
         $stmt->bindParam(':start_time', $start_time, PDO::PARAM_STR);
@@ -152,4 +154,4 @@ try {
     error_log('空き予約枠追加エラー: ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => 'データベースエラーが発生しました']);
 }
-?> 
+?>

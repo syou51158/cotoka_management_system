@@ -1,0 +1,103 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ログイン - Cotoka Management System</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="assets/css/common/variables.css">
+    <link rel="stylesheet" href="assets/css/common/global.css">
+    <link rel="stylesheet" href="assets/css/login.css">
+    <link rel="icon" href="assets/images/favicon.ico">
+</head>
+<body class="login-page">
+    <!-- 高級感のある背景 -->
+    <div class="auth-background"></div>
+
+    <div class="login-container">
+        <div class="d-flex align-items-center justify-content-center min-vh-100 px-3">
+            <div class="login-card">
+                <div class="login-brand">
+                    <div class="brand-title">
+                        <h1>
+                            <div class="word">Cotoka</div>
+                            <div class="word word-management">Management</div>
+                            <div class="word word-system">System</div>
+                        </h1>
+                    </div>
+                    <p>美しさと機能性を融合した次世代サロン管理システム</p>
+                    
+                    <!-- 追加された動く文字 -->
+                    <div class="animated-tagline">
+                        <span class="tagline-text">あなたのサロンをもっと輝かせる</span>
+                    </div>
+                    
+                    <div class="features">
+                        <ul class="list-unstyled">
+                            <li><i class="bi bi-gem"></i> 複数サロンの一元管理を洗練されたインターフェースで</li>
+                            <li><i class="bi bi-calendar2-check"></i> 予約・顧客管理をスマートに効率化</li>
+                            <li><i class="bi bi-people-fill"></i> スタッフのスケジュール管理も簡単操作</li>
+                            <li><i class="bi bi-graph-up-arrow"></i> リアルタイムで分析できる売上レポート</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="login-form">
+                    <h2>ようこそ</h2>
+                    
+                    
+                                        
+                                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                                <div><i class="bi bi-exclamation-circle-fill"></i> 不正なリクエストです。ページを再読み込みして再度お試しください。</div>
+                                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                                        
+                    <form method="POST" action="">
+                        <input type="hidden" name="csrf_token" value="d83574b01aa76fc6f39c2a554e268e966f1f8433aec6dbac56d68d51f7736928">
+                        
+                        <div class="form-floating mb-3">
+                            <input type="text" class="form-control" id="identifier" name="identifier" placeholder="メールアドレスまたはユーザー名" required>
+                            <label for="identifier">メールアドレスまたはユーザー名</label>
+                        </div>
+                        
+                        <div class="form-floating mb-3 password-container">
+                            <input type="password" class="form-control" id="password" name="password" placeholder="パスワード" required>
+                            <label for="password">パスワード</label>
+                            <button type="button" class="password-toggle" onclick="togglePasswordVisibility()">
+                                <i class="bi bi-eye" id="password-toggle-icon"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="remember_me" name="remember_me">
+                            <label class="form-check-label" for="remember_me">ログイン状態を維持する</label>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-gold w-100 btn-lg mb-3">ログイン</button>
+                        
+                        <div class="text-center">
+                            <a href="forgot_password.php" class="text-decoration-none d-block mb-2">
+                                <i class="bi bi-key"></i> パスワードをお忘れですか？
+                            </a>
+                            <a href="register.php" class="text-decoration-none">
+                                <i class="bi bi-person-plus"></i> アカウント登録
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- スクリプト -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="assets/js/login.js"></script>
+</body>
+</html>

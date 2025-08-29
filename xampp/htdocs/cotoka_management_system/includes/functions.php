@@ -186,7 +186,7 @@ function isLoggedIn() {
 }
 
 /**
- * ユーザーが管理者権限を持っているかチェック
+ * ユーザーが管理者権限を持っているかどうかを確認
  * 
  * @return bool 管理者ならtrue
  */
@@ -225,7 +225,7 @@ function isGlobalAdmin() {
 }
 
 /**
- * 管理者権限（テナント管理者またはマネージャー）を持っているかチェック
+ * 管理者権限（テナント管理者またはマネージャー）を持っているかどうかを確認
  * 
  * @return bool 管理者権限の有無
  */
@@ -451,7 +451,6 @@ function logSystemActivity($action, $entityType = null, $entityId = null, $detai
         // user_idが数値であることを確認
         $userId = null;
         if (isLoggedIn() && isset($_SESSION['user_id'])) {
-            // 数値に変換を確実に行う
             $userId = is_numeric($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
         }
         
@@ -463,15 +462,19 @@ function logSystemActivity($action, $entityType = null, $entityId = null, $detai
         $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
         $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
         
-        $sql = "INSERT INTO system_logs (tenant_id, user_id, action, entity_type, entity_id, ip_address, user_agent, details) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-        
-        $params = [$tenantId, $userId, $action, $entityType, $entityId, $ipAddress, $userAgent, $details];
-        
-        $db->query($sql, $params);
+        // Supabase REST API 経由で挿入
+        $db->insert('system_logs', [
+            'tenant_id'  => $tenantId,
+            'user_id'    => $userId,
+            'action'     => $action,
+            'entity_type'=> $entityType,
+            'entity_id'  => $entityId,
+            'ip_address' => $ipAddress,
+            'user_agent' => $userAgent,
+            'details'    => $details,
+        ]);
         return true;
     } catch (Exception $e) {
-        // エラーをログに記録するが、ユーザー体験を妨げないためにエラーを表示しない
         error_log('システムログ記録エラー: ' . $e->getMessage());
         return false;
     }
@@ -520,26 +523,35 @@ function debug($data, $die = false) {
  * 
  * @param string $identifier ユーザー識別子（メールアドレスまたはユーザーID）
  * @param Database $db データベースインスタンス
+ * @param int $maxAttempts 最大試行回数
+ * @param int $lockoutTime ロックアウト時間（秒）
  * @return bool 試行可能な場合はtrue
  */
-function checkLoginAttempts($identifier, $db = null) {
-    // データベースインスタンスが渡されていない場合はグローバル変数を使用
+function checkLoginAttempts($identifier, $db = null, $maxAttempts = 5, $lockoutTime = 300) {
     if ($db === null) {
-        global $db;
-    }
-    
-    // 最大試行回数と試行回数のリセット時間（秒）
-    $maxAttempts = 5;
-    $lockoutTime = 300; // 5分
-    
-    $sql = "SELECT * FROM login_attempts WHERE identifier = ? AND last_attempt > DATE_SUB(NOW(), INTERVAL ? SECOND)";
-    $attempts = $db->fetchOne($sql, [$identifier, $lockoutTime]);
-    
-    if (!$attempts) {
+        // Databaseインスタンスが無い場合でも制限はしない
+        error_log('checkLoginAttempts: Database connection is null');
         return true;
     }
     
-    return $attempts['attempts'] < $maxAttempts;
+    try {
+        // 現在時刻からlockoutTime秒前の時刻（ISO8601 / RFC3339）
+        $cutoffIso = gmdate('c', time() - $lockoutTime);
+        
+        // Supabase REST APIでカウントを取得（gte演算子を使用）
+        $attempt_count = $db->count('login_attempts', [
+            'identifier'   => $identifier,
+            'attempt_time' => ['op' => 'gte', 'value' => $cutoffIso],
+        ]);
+        
+        if ($attempt_count >= $maxAttempts) {
+            return false; // ロックアウト
+        }
+        return true;
+    } catch (Exception $e) {
+        error_log('checkLoginAttempts error: ' . $e->getMessage());
+        return true; // エラー時は制限しない
+    }
 }
 
 /**
@@ -550,18 +562,20 @@ function checkLoginAttempts($identifier, $db = null) {
  * @return void
  */
 function incrementLoginAttempts($identifier, $db = null) {
-    // データベースインスタンスが渡されていない場合はグローバル変数を使用
     if ($db === null) {
-        global $db;
+        error_log('incrementLoginAttempts: Database instance is null');
+        return;
     }
     
-    $sql = "INSERT INTO login_attempts (identifier, attempts) 
-            VALUES (?, 1) 
-            ON DUPLICATE KEY UPDATE 
-            attempts = attempts + 1,
-            last_attempt = CURRENT_TIMESTAMP";
-            
-    $db->query($sql, [$identifier]);
+    try {
+        $db->insert('login_attempts', [
+            'identifier'   => $identifier,
+            'ip_address'   => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'attempt_time' => gmdate('c'),
+        ]);
+    } catch (Exception $e) {
+        error_log('incrementLoginAttempts error: ' . $e->getMessage());
+    }
 }
 
 /**
@@ -572,13 +586,16 @@ function incrementLoginAttempts($identifier, $db = null) {
  * @return void
  */
 function clearLoginAttempts($identifier, $db = null) {
-    // データベースインスタンスが渡されていない場合はグローバル変数を使用
     if ($db === null) {
-        global $db;
+        error_log('clearLoginAttempts: Database instance is null');
+        return;
     }
     
-    $sql = "DELETE FROM login_attempts WHERE identifier = ?";
-    $db->query($sql, [$identifier]);
+    try {
+        $db->delete('login_attempts', ['identifier' => $identifier]);
+    } catch (Exception $e) {
+        error_log('clearLoginAttempts error: ' . $e->getMessage());
+    }
 }
 
 /**
@@ -687,17 +704,14 @@ function getCurrentSalonInfo() {
     }
     
     try {
-        $db = new Database();
+        $db = Database::getInstance();
         $salonId = $_SESSION['current_salon_id'];
         
-        $sql = "SELECT * FROM salons WHERE salon_id = ?";
-        $salon = $db->fetchOne($sql, [$salonId]);
-        
+        $salon = $db->fetchOne('salons', ['salon_id' => $salonId], '*');
         if ($salon) {
             return $salon;
         }
     } catch (Exception $e) {
-        // エラー時は静かに失敗
         error_log('サロン情報取得エラー: ' . $e->getMessage());
     }
     
@@ -713,12 +727,13 @@ function getCurrentSalonInfo() {
 function getSalonInfo($salonId) {
     if (!$salonId) return null;
     
-    $db = new Database();
-    $stmt = $db->prepare("SELECT * FROM salons WHERE salon_id = ?");
-    $stmt->bindParam(1, $salonId, PDO::PARAM_INT);
-    $stmt->execute();
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $result;
+    $db = Database::getInstance();
+    try {
+        return $db->fetchOne('salons', ['salon_id' => $salonId], '*');
+    } catch (Exception $e) {
+        error_log('サロン情報取得エラー: ' . $e->getMessage());
+        return null;
+    }
 }
 
 /**
@@ -740,19 +755,15 @@ function getUserName() {
  */
 function getUserRole() {
     if (!isset($_SESSION['role_id'])) {
-        // デバッグ情報を表示
         error_log('SESSION情報: ' . print_r($_SESSION, true));
         return '';
     }
     
-    // セッションから取得したrole_idをもとに、rolesテーブルからrole_nameを取得
     $roleId = $_SESSION['role_id'];
-    $db = new Database();
+    $db = Database::getInstance();
     
     try {
-        $sql = "SELECT role_name FROM roles WHERE role_id = ?";
-        $result = $db->fetchOne($sql, [$roleId]);
-        
+        $result = $db->fetchOne('roles', ['role_id' => $roleId], 'role_name');
         if ($result && isset($result['role_name'])) {
             return $result['role_name'];
         }
@@ -760,7 +771,6 @@ function getUserRole() {
         error_log('ロール取得エラー: ' . $e->getMessage());
     }
     
-    // 該当するロールが見つからなかった場合のデフォルト値
     return '';
 }
 
@@ -856,12 +866,16 @@ function supabaseRpcCall($functionName, $payload = [], $apiKey = null) {
     }
 
     $url = rtrim($baseUrl, '/') . '/rest/v1/rpc/' . $functionName;
+    $schema = (defined('SUPABASE_SCHEMA') && SUPABASE_SCHEMA) ? SUPABASE_SCHEMA : 'cotoka';
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Content-Type: application/json',
         'apikey: ' . $apiKey,
-        'Authorization: Bearer ' . $apiKey
+        'Authorization: Bearer ' . $apiKey,
+        // スキーマ指定（RPC呼び出しでもプロファイルを明示）
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
     ]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
@@ -902,4 +916,148 @@ function fetchTenantsListAdminFromSupabase() {
     $res = supabaseRpcCall('tenants_list_admin', [], $apiKey);
     if (!$res['success']) return [];
     return is_array($res['data']) ? $res['data'] : [];
-} 
+}
+
+/**
+ * Supabase UIDからローカルユーザー情報を取得
+ * 
+ * @param string $supabase_uid Supabase UID
+ * @param Database $db データベースインスタンス
+ * @return array|false ユーザー情報またはfalse
+ */
+function getUserBySupabaseUid($supabase_uid, $db = null) {
+    if ($db === null) {
+        $db = new Database();
+    }
+    
+    try {
+        // PostgREST埋め込みを使用してroles/tenantsを取得（cotokaスキーマ）
+        $select = 'id,user_id,email,name,role_id,tenant_id,status,created_at,updated_at,last_login,roles(role_name),tenants(tenant_name)';
+        $user = $db->fetchOne('users', [
+            'supabase_uid' => $supabase_uid,
+            'status' => 'active',
+        ], $select);
+
+        if ($user) {
+            $roleName = isset($user['roles']['role_name']) ? $user['roles']['role_name'] : 'staff';
+            $tenantName = isset($user['tenants']['tenant_name']) ? $user['tenants']['tenant_name'] : '';
+
+            $userData = [
+                'id' => $user['id'] ?? null,
+                'user_id' => $user['user_id'] ?? null,
+                'email' => $user['email'] ?? '',
+                'name' => $user['name'] ?? '',
+                'role' => $roleName,
+                // 日本語名のフォールバック
+                'role_name' => $roleName === 'staff' ? 'スタッフ' : $roleName,
+                'tenant_id' => $user['tenant_id'] ?? null,
+                'tenant_name' => $tenantName,
+                'status' => $user['status'] ?? null,
+                'created_at' => $user['created_at'] ?? null,
+                'updated_at' => $user['updated_at'] ?? null,
+                'last_login' => $user['last_login'] ?? null,
+            ];
+            return $userData;
+        }
+
+        return false;
+    } catch (Exception $e) {
+        error_log('getUserBySupabaseUid error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * メールアドレスからユーザー情報を取得
+ * 
+ * @param string $email メールアドレス
+ * @return array|false ユーザー情報またはfalse
+ */
+function getUserByEmail($email) {
+    $db = new Database();
+    try {
+        $select = 'id,user_id,email,name,role_id,tenant_id,status,created_at,updated_at,last_login,roles(role_name),tenants(tenant_name)';
+        $user = $db->fetchOne('users', [
+            'email' => $email,
+            'status' => 'active',
+        ], $select);
+
+        if ($user) {
+            $roleName = isset($user['roles']['role_name']) ? $user['roles']['role_name'] : 'staff';
+            $tenantName = isset($user['tenants']['tenant_name']) ? $user['tenants']['tenant_name'] : '';
+            $normalized = [
+                'id' => $user['id'] ?? null,
+                'user_id' => $user['user_id'] ?? null,
+                'email' => $user['email'] ?? '',
+                'name' => $user['name'] ?? '',
+                'role' => $roleName,
+                'role_name' => $roleName === 'staff' ? 'スタッフ' : $roleName,
+                'tenant_id' => $user['tenant_id'] ?? null,
+                'tenant_name' => $tenantName,
+                'status' => $user['status'] ?? null,
+                'created_at' => $user['created_at'] ?? null,
+                'updated_at' => $user['updated_at'] ?? null,
+                'last_login' => $user['last_login'] ?? null,
+            ];
+            return ['success' => true, 'data' => [$normalized]];
+        } else {
+            return ['success' => false, 'message' => 'ユーザーが見つかりません'];
+        }
+    } catch (Exception $e) {
+        error_log('getUserByEmail error: ' . $e->getMessage());
+        return ['success' => false, 'message' => 'エラーが発生しました'];
+    }
+}
+
+/**
+ * ユーザーのアクセス可能なサロンを取得
+ * 
+ * @param int $user_id ユーザーID
+ * @return array サロンリスト
+ */
+function getUserAccessibleSalons($user_id) {
+    $db = new Database();
+
+    // ユーザーの役割を取得（rolesを埋め込み）
+    $user = $db->fetchOne('users', ['id' => $user_id], 'id,tenant_id,roles(role_name)');
+    $roleName = $user && isset($user['roles']['role_name']) ? $user['roles']['role_name'] : null;
+
+    if ($roleName === 'admin') {
+        // 管理者は全サロンにアクセス可（tenantsを埋め込み）
+        $rows = $db->fetchAll('salons', ['status' => 'active'], 'salon_id,salon_name,salon_address,tenants(tenant_name)');
+        $salons = [];
+        foreach ($rows as $row) {
+            $salons[] = [
+                'salon_id' => $row['salon_id'] ?? null,
+                'salon_name' => $row['salon_name'] ?? '',
+                'salon_address' => $row['salon_address'] ?? '',
+                'tenant_name' => isset($row['tenants']['tenant_name']) ? $row['tenants']['tenant_name'] : '',
+            ];
+        }
+    } else {
+        // user_salonsからアクセス可能なサロンを取得（salonsとその先のtenantsを埋め込み）
+        // salons.status=active でネスト先のフィルタを付与
+        $rows = $db->fetchAll(
+            'user_salons',
+            [
+                'user_id' => $user_id,
+                'salons.status' => 'active',
+            ],
+            'role,salons(salon_id,salon_name,salon_address,tenants(tenant_name))'
+        );
+
+        $salons = [];
+        foreach ($rows as $row) {
+            $salon = $row['salons'] ?? [];
+            $salons[] = [
+                'salon_id' => $salon['salon_id'] ?? null,
+                'salon_name' => $salon['salon_name'] ?? '',
+                'salon_address' => $salon['salon_address'] ?? '',
+                'tenant_name' => isset($salon['tenants']['tenant_name']) ? $salon['tenants']['tenant_name'] : '',
+                'user_role' => $row['role'] ?? null,
+            ];
+        }
+    }
+
+    return ['success' => true, 'data' => $salons];
+}

@@ -54,7 +54,7 @@ include 'includes/header.php';
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h1><i class="fas fa-calendar-check me-2"></i>全予約一覧</h1>
                 <a href="global-admin-dashboard.php" class="btn btn-secondary">
-                    <i class="fas fa-arrow-left me-2"></i>グローバル管理者ダッシュボードに戻る
+                    <i class="fas fa-arrow-left me-2"></i>グローバル管理ダッシュボードに戻る
                 </a>
             </div>
         </div>

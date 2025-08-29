@@ -1,8 +1,8 @@
 <?php
 /**
- * Cotoka Management System - データベース最適化スクリプト
+ * Cotoka Management System - Supabaseデータベース最適化スクリプト
  * 
- * このスクリプトは、サロン管理システムのデータベースを最適化します。
+ * このスクリプトは、サロン管理システムのSupabaseデータベースを最適化します。
  * - 必要なインデックスの追加
  * - 外部キー制約の修正
  * - 新しいテーブルの作成
@@ -20,16 +20,16 @@ date_default_timezone_set('Asia/Tokyo');
 ob_start();
 
 echo "==================================================\n";
-echo "Cotoka Management System - データベース最適化ツール\n";
+echo "Cotoka Management System - Supabaseデータベース最適化ツール\n";
 echo "==================================================\n\n";
 
-// データベース接続
+// Supabaseデータベース接続
 try {
     $db = new Database();
     $conn = $db->getConnection();
-    echo "データベース接続成功\n";
+    echo "Supabaseデータベース接続成功\n";
 } catch (Exception $e) {
-    die("データベース接続エラー: " . $e->getMessage() . "\n");
+    die("Supabaseデータベース接続エラー: " . $e->getMessage() . "\n");
 }
 
 // 最適化スクリプトを実行する関数
@@ -83,7 +83,7 @@ function checkDatabaseStructure($conn) {
         'services', 'appointments', 'sales'
     ];
     
-    $query = "SHOW TABLES";
+    $query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'cotoka' OR table_schema = 'public'";
     $stmt = $conn->query($query);
     $existingTables = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
@@ -97,12 +97,12 @@ function checkDatabaseStructure($conn) {
     $tablesWithMissingIndices = [];
     $checkIndexQueries = [
         'appointments' => [
-            "SHOW INDEX FROM appointments WHERE Key_name = 'idx_appointment_date'",
-            "SHOW INDEX FROM appointments WHERE Key_name = 'idx_appointment_staff_date'"
+            "SELECT indexname FROM pg_indexes WHERE schemaname IN ('cotoka', 'public') AND tablename = 'appointments' AND indexname = 'idx_appointment_date'",
+            "SELECT indexname FROM pg_indexes WHERE schemaname IN ('cotoka', 'public') AND tablename = 'appointments' AND indexname = 'idx_appointment_staff_date'"
         ],
         'customers' => [
-            "SHOW INDEX FROM customers WHERE Key_name = 'idx_customer_name'",
-            "SHOW INDEX FROM customers WHERE Key_name = 'idx_customer_email'"
+            "SELECT indexname FROM pg_indexes WHERE schemaname IN ('cotoka', 'public') AND tablename = 'customers' AND indexname = 'idx_customer_name'",
+            "SELECT indexname FROM pg_indexes WHERE schemaname IN ('cotoka', 'public') AND tablename = 'customers' AND indexname = 'idx_customer_email'"
         ]
     ];
     
@@ -128,7 +128,7 @@ function checkDatabaseStructure($conn) {
     
     // カラム存在チェック
     try {
-        $stmt = $conn->query("DESCRIBE appointments");
+        $stmt = $conn->query("SELECT column_name FROM information_schema.columns WHERE table_schema IN ('cotoka', 'public') AND table_name = 'appointments'");
         $columns = $stmt->fetchAll(PDO::FETCH_COLUMN);
         
         $requiredColumns = ['is_confirmed', 'confirmation_sent_at', 'reminder_sent_at'];
@@ -163,9 +163,9 @@ function checkDatabaseStructure($conn) {
     }
 }
 
-// データベースのバックアップを作成
+// Supabaseデータベースのバックアップを作成
 function backupDatabase($conn, $dbName) {
-    echo "\nデータベースのバックアップを作成中...\n";
+    echo "\nSupabaseデータベースのバックアップを作成中...\n";
     
     // バックアップディレクトリを確認
     $backupDir = __DIR__ . '/backups';
@@ -177,33 +177,36 @@ function backupDatabase($conn, $dbName) {
     }
     
     // バックアップファイル名を生成
-    $backupFile = $backupDir . '/' . $dbName . '_backup_' . date('Y-m-d_H-i-s') . '.sql';
+    $backupFile = $backupDir . '/supabase_backup_' . date('Y-m-d_H-i-s') . '.sql';
     
-    // mysqldumpコマンドでバックアップを実行
-    $command = sprintf(
-        'mysqldump --user=%s --password=%s --host=%s %s > %s',
-        escapeshellarg(DB_USER),
-        escapeshellarg(DB_PASS),
-        escapeshellarg(DB_HOST),
-        escapeshellarg(DB_NAME),
-        escapeshellarg($backupFile)
-    );
-    
-    // コマンド実行
-    $output = [];
-    $returnVar = 0;
-    exec($command, $output, $returnVar);
-    
-    if ($returnVar !== 0) {
-        echo "バックアップ作成に失敗しました。\n";
-        if (!empty($output)) {
-            echo "エラー: " . implode("\n", $output) . "\n";
+    try {
+        // Supabaseの場合、pg_dumpを使用するか、手動でテーブルデータをエクスポート
+        echo "注意: Supabaseのバックアップは手動で行う必要があります。\n";
+        echo "Supabaseダッシュボードからデータベースのバックアップを作成してください。\n";
+        echo "または、pg_dumpコマンドを使用してバックアップを作成してください。\n";
+        
+        // 簡易的なスキーマ情報をファイルに保存
+        $schemaInfo = "-- Supabase Schema Backup Created: " . date('Y-m-d H:i:s') . "\n";
+        $schemaInfo .= "-- Project: Cotoka Management System\n";
+        $schemaInfo .= "-- Schema: cotoka\n\n";
+        
+        // テーブル一覧を取得
+        $stmt = $conn->query("SELECT table_name FROM information_schema.tables WHERE table_schema IN ('cotoka', 'public') ORDER BY table_name");
+        $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        $schemaInfo .= "-- Tables in database:\n";
+        foreach ($tables as $table) {
+            $schemaInfo .= "-- - $table\n";
         }
+        
+        file_put_contents($backupFile, $schemaInfo);
+        echo "スキーマ情報をバックアップファイルに保存しました: $backupFile\n";
+        return true;
+        
+    } catch (Exception $e) {
+        echo "バックアップ作成中にエラーが発生しました: " . $e->getMessage() . "\n";
         return false;
     }
-    
-    echo "バックアップが正常に作成されました: $backupFile\n";
-    return true;
 }
 
 // メイン処理
@@ -272,4 +275,4 @@ file_put_contents(
     $output
 );
 
-echo "処理が完了しました。詳細なログは logs ディレクトリに保存されています。\n"; 
+echo "処理が完了しました。詳細なログは logs ディレクトリに保存されています。\n";

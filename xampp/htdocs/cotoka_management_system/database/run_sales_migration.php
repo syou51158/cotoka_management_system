@@ -1,6 +1,7 @@
 <?php
-// データベース接続情報をインポート
+// Supabase売上テーブル移行スクリプト
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../classes/Database.php';
 
 // 実行状況を報告する関数
 function report($message) {
@@ -13,16 +14,10 @@ function report($message) {
 }
 
 try {
-    // データベース接続
-    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
-    $options = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ];
-    
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-    report("データベースに接続しました");
+    // Supabaseデータベース接続
+    $db = new Database();
+    $pdo = $db->getConnection();
+    report("Supabaseデータベースに接続しました");
     
     // SQLファイルを実行する関数
     function executeSQLFile($pdo, $filepath) {
@@ -50,10 +45,6 @@ try {
         return true;
     }
     
-    // 外部キーチェックを無効化
-    $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
-    report("外部キーチェックを無効化しました");
-    
     // 売上テーブルを作成
     $result = executeSQLFile($pdo, __DIR__ . '/create_sales_table.sql');
     
@@ -63,10 +54,6 @@ try {
         report("売上テーブルの作成中に問題が発生しました");
     }
     
-    // 外部キーチェックを有効化
-    $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
-    report("外部キーチェックを有効化しました");
-    
     report("sales テーブル移行が完了しました！");
     
 } catch (PDOException $e) {
@@ -74,4 +61,4 @@ try {
 } catch (Exception $e) {
     report("エラーが発生しました: " . $e->getMessage());
 }
-?> 
+?>

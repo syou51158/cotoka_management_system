@@ -10,22 +10,17 @@ echo "Server Software: " . $_SERVER['SERVER_SOFTWARE'] . "<br>";
 echo "Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "<br>";
 
 // データベース接続テスト
-echo "<h2>データベース接続テスト</h2>";
+echo "<h2>Supabaseデータベース接続テスト</h2>";
 require_once 'config.php';
+require_once 'classes/Database.php';
 
 try {
-    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
-    $options = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ];
+    $database = new Database();
+    $pdo = $database->getConnection();
+    echo "<p style='color:green'>✓ Supabaseデータベース接続成功</p>";
     
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-    echo "<p style='color:green'>✓ データベース接続成功</p>";
-    
-    // データベーステーブル一覧表示
-    $stmt = $pdo->query("SHOW TABLES");
+    // データベーステーブル一覧表示（PostgreSQL用）
+    $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'cotoka' ORDER BY table_name");
     echo "<h3>テーブル一覧</h3>";
     echo "<ul>";
     while ($row = $stmt->fetch()) {

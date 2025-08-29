@@ -122,12 +122,14 @@ $is_fix_mode = ($mode === 'fix');
                     ];
                     
                     $stmt = $conn->prepare("
-                        INSERT INTO salon_business_hours (salon_id, day_of_week, open_time, close_time, is_closed)
-                        VALUES (:salon_id, :day_of_week, :open_time, :close_time, :is_closed)
+                        INSERT INTO salon_business_hours (salon_id, tenant_id, day_of_week, open_time, close_time, is_closed)
+                        VALUES (:salon_id, :tenant_id, :day_of_week, :open_time, :close_time, :is_closed)
                     ");
                     
                     foreach ($default_hours as $hour) {
                         $stmt->bindParam(':salon_id', $salon_id);
+                        $tenant_id = getCurrentTenantId();
+                        $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
                         $stmt->bindParam(':day_of_week', $hour['day_of_week']);
                         $stmt->bindParam(':open_time', $hour['open_time']);
                         $stmt->bindParam(':close_time', $hour['close_time']);
@@ -533,4 +535,4 @@ $is_fix_mode = ($mode === 'fix');
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-</html> 
+</html>

@@ -13,8 +13,8 @@ class Appointment {
      * データベース接続を初期化
      */
     public function __construct() {
-        $this->db = new Database();
-        $this->conn = $this->db->getConnection();
+        $this->db = Database::getInstance();
+        $this->conn = null; // Supabase REST使用のため直接接続は保持しない
     }
     
     /**
@@ -28,72 +28,119 @@ class Appointment {
      * @return array 予約データの配列
      */
     public function getAllAppointments($salon_id, $filters = [], $order_by = 'appointment_date DESC, start_time ASC', $limit = 100, $offset = 0) {
-        $sql = "SELECT a.*, 
-                c.first_name AS customer_first_name, c.last_name AS customer_last_name, 
-                s.name AS service_name, s.duration AS service_duration, s.price AS service_price,
-                st.first_name AS staff_first_name, st.last_name AS staff_last_name
-                FROM appointments a
-                LEFT JOIN customers c ON a.customer_id = c.customer_id
-                LEFT JOIN services s ON a.service_id = s.service_id
-                LEFT JOIN staff st ON a.staff_id = st.staff_id
-                WHERE a.salon_id = :salon_id";
-        
-        $params = [':salon_id' => $salon_id];
-        
-        // フィルタ条件を追加
-        if (!empty($filters)) {
-            foreach ($filters as $key => $value) {
-                if ($key === 'date') {
-                    $sql .= " AND DATE(a.appointment_date) = :date";
-                    $params[':date'] = $value;
-                } elseif ($key === 'status') {
-                    $sql .= " AND a.status = :status";
-                    $params[':status'] = $value;
-                } elseif ($key === 'customer_id') {
-                    $sql .= " AND a.customer_id = :customer_id";
-                    $params[':customer_id'] = $value;
-                } elseif ($key === 'staff_id') {
-                    $sql .= " AND a.staff_id = :staff_id";
-                    $params[':staff_id'] = $value;
-                } elseif ($key === 'service_id') {
-                    $sql .= " AND a.service_id = :service_id";
-                    $params[':service_id'] = $value;
-                } elseif ($key === 'date_from') {
-                    $sql .= " AND a.appointment_date >= :date_from";
-                    $params[':date_from'] = $value;
-                } elseif ($key === 'date_to') {
-                    $sql .= " AND a.appointment_date <= :date_to";
-                    $params[':date_to'] = $value;
-                } elseif ($key === 'search') {
-                    $sql .= " AND (c.first_name LIKE :search OR c.last_name LIKE :search OR c.phone LIKE :search OR c.email LIKE :search)";
-                    $params[':search'] = "%$value%";
-                }
-            }
-        }
-        
-        // ソートと制限
-        $sql .= " ORDER BY $order_by LIMIT :limit OFFSET :offset";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
+            $tenantId = getCurrentTenantId();
             
-            // パラメータをバインド
-            foreach ($params as $key => $value) {
-                $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+            // RESTフィルタ構築
+            $restFilters = [
+                'salon_id' => $salon_id,
+                'tenant_id' => $tenantId,
+            ];
+            if (!empty($filters['status'])) { $restFilters['status'] = $filters['status']; }
+            if (!empty($filters['customer_id'])) { $restFilters['customer_id'] = $filters['customer_id']; }
+            if (!empty($filters['staff_id'])) { $restFilters['staff_id'] = $filters['staff_id']; }
+            if (!empty($filters['service_id'])) { $restFilters['service_id'] = $filters['service_id']; }
+            if (!empty($filters['date'])) { $restFilters['appointment_date'] = 'eq.' . $filters['date']; }
+            if (!empty($filters['date_from'])) { $restFilters['appointment_date'] = 'gte.' . $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $restFilters['appointment_date'] = 'lte.' . $filters['date_to']; }
+
+            // orderパラメータ変換
+            $orderOpt = 'appointment_date.desc,start_time.asc'; // default
+            if (!empty($order_by)) {
+                $parts = array_map('trim', explode(',', $order_by));
+                $mapped = [];
+                foreach ($parts as $p) {
+                    if ($p === '') continue;
+                    $sp = preg_split('/\s+/', trim($p));
+                    $col = $sp[0];
+                    $dir = isset($sp[1]) ? strtolower($sp[1]) : 'asc';
+                    $mapped[] = $col . '.' . ($dir === 'desc' ? 'desc' : 'asc');
+                }
+                if ($mapped) { $orderOpt = implode(',', $mapped); }
             }
-            
-            // limit と offset は特別な扱い
-            $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
-            $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
-            
-            $stmt->execute();
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
+
+            // 検索フィルタ（PHP側で処理）
+            $search = isset($filters['search']) ? mb_strtolower($filters['search']) : null;
+
+            // appointmentsテーブルから基本データを取得
+            // 検索がある場合は多めに取得してPHPで絞り込む
+            $fetchLimit = $search ? 2000 : $limit;
+            $fetchOffset = $search ? 0 : $offset;
+
+            $appointments = $this->db->fetchAll('appointments', $restFilters, '*', [
+                'order' => $orderOpt,
+                'limit' => $fetchLimit,
+                'offset' => $fetchOffset,
+            ]);
+
+            if (empty($appointments)) {
+                return [];
+            }
+
+            // 関連IDを収集
+            $customerIds = array_unique(array_filter(array_column($appointments, 'customer_id')));
+            $serviceIds = array_unique(array_filter(array_column($appointments, 'service_id')));
+            $staffIds = array_unique(array_filter(array_column($appointments, 'staff_id')));
+
+            // 関連データを一括取得
+            $customers = !empty($customerIds) ? $this->db->fetchAll('customers', ['customer_id' => $customerIds, 'tenant_id' => $tenantId], 'customer_id,first_name,last_name,phone,email') : [];
+            $services = !empty($serviceIds) ? $this->db->fetchAll('services', ['service_id' => $serviceIds, 'tenant_id' => $tenantId], 'service_id,name,duration,price') : [];
+            $staff = !empty($staffIds) ? $this->db->fetchAll('staff', ['staff_id' => $staffIds, 'tenant_id' => $tenantId], 'staff_id,first_name,last_name') : [];
+
+            // ルックアップマップ作成
+            $customerMap = array_column($customers, null, 'customer_id');
+            $serviceMap = array_column($services, null, 'service_id');
+            $staffMap = array_column($staff, null, 'staff_id');
+
+            // 予約データに情報を付与
+            $enriched = [];
+            foreach ($appointments as $a) {
+                if (isset($customerMap[$a['customer_id']])) {
+                    $c = $customerMap[$a['customer_id']];
+                    $a['customer_first_name'] = $c['first_name'] ?? null;
+                    $a['customer_last_name'] = $c['last_name'] ?? null;
+                    $a['customer_phone'] = $c['phone'] ?? null;
+                    $a['customer_email'] = $c['email'] ?? null;
+                }
+                if (isset($serviceMap[$a['service_id']])) {
+                    $s = $serviceMap[$a['service_id']];
+                    $a['service_name'] = $s['name'] ?? null;
+                    $a['service_duration'] = $s['duration'] ?? null;
+                    $a['service_price'] = $s['price'] ?? null;
+                }
+                if (isset($staffMap[$a['staff_id']])) {
+                    $st = $staffMap[$a['staff_id']];
+                    $a['staff_first_name'] = $st['first_name'] ?? null;
+                    $a['staff_last_name'] = $st['last_name'] ?? null;
+                }
+
+                // searchフィルタ
+                if ($search) {
+                    $hay = mb_strtolower(implode(' ', [
+                        $a['customer_first_name'] ?? '',
+                        $a['customer_last_name'] ?? '',
+                        $a['customer_phone'] ?? '',
+                        $a['customer_email'] ?? '',
+                    ]));
+                    if (mb_strpos($hay, $search) === false) {
+                        continue; // マッチしない
+                    }
+                }
+                $enriched[] = $a;
+            }
+
+            // 検索後のページング適用
+            if ($search) {
+                return array_slice($enriched, (int)$offset, (int)$limit);
+            }
+
+            return $enriched;
+        } catch (Exception $e) {
             error_log("getAllAppointments エラー: " . $e->getMessage());
             return [];
         }
     }
-    
+
     /**
      * 予約の総数を取得（ページネーション用）
      * 
@@ -102,55 +149,56 @@ class Appointment {
      * @return int 予約の総数
      */
     public function getTotalAppointmentsCount($salon_id, $filters = []) {
-        $sql = "SELECT COUNT(*) as total FROM appointments a
-                LEFT JOIN customers c ON a.customer_id = c.customer_id
-                WHERE a.salon_id = :salon_id";
-        
-        $params = [':salon_id' => $salon_id];
-        
-        // フィルタ条件を追加
-        if (!empty($filters)) {
-            foreach ($filters as $key => $value) {
-                if ($key === 'date') {
-                    $sql .= " AND DATE(a.appointment_date) = :date";
-                    $params[':date'] = $value;
-                } elseif ($key === 'status') {
-                    $sql .= " AND a.status = :status";
-                    $params[':status'] = $value;
-                } elseif ($key === 'customer_id') {
-                    $sql .= " AND a.customer_id = :customer_id";
-                    $params[':customer_id'] = $value;
-                } elseif ($key === 'staff_id') {
-                    $sql .= " AND a.staff_id = :staff_id";
-                    $params[':staff_id'] = $value;
-                } elseif ($key === 'service_id') {
-                    $sql .= " AND a.service_id = :service_id";
-                    $params[':service_id'] = $value;
-                } elseif ($key === 'date_from') {
-                    $sql .= " AND a.appointment_date >= :date_from";
-                    $params[':date_from'] = $value;
-                } elseif ($key === 'date_to') {
-                    $sql .= " AND a.appointment_date <= :date_to";
-                    $params[':date_to'] = $value;
-                } elseif ($key === 'search') {
-                    $sql .= " AND (c.first_name LIKE :search OR c.last_name LIKE :search OR c.phone LIKE :search OR c.email LIKE :search)";
-                    $params[':search'] = "%$value%";
-                }
-            }
-        }
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            
-            // パラメータをバインド
-            foreach ($params as $key => $value) {
-                $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+            $tenantId = getCurrentTenantId();
+            $restFilters = [
+                'salon_id' => $salon_id,
+                'tenant_id' => $tenantId,
+            ];
+            if (!empty($filters['status'])) { $restFilters['status'] = $filters['status']; }
+            if (!empty($filters['customer_id'])) { $restFilters['customer_id'] = $filters['customer_id']; }
+            if (!empty($filters['staff_id'])) { $restFilters['staff_id'] = $filters['staff_id']; }
+            if (!empty($filters['service_id'])) { $restFilters['service_id'] = $filters['service_id']; }
+            if (!empty($filters['date'])) { $restFilters['appointment_date'] = $filters['date']; }
+
+            $rows = $this->db->fetchAll('appointments', $restFilters, 'appointment_id,appointment_date', [ 'limit' => 2000 ]);
+
+            $dateFrom = $filters['date_from'] ?? null;
+            $dateTo = $filters['date_to'] ?? null;
+            $search = isset($filters['search']) ? mb_strtolower($filters['search']) : null;
+
+            // まず日付で絞り込み
+            $rows = array_values(array_filter($rows, function ($r) use ($dateFrom, $dateTo) {
+                if ($dateFrom && $r['appointment_date'] < $dateFrom) return false;
+                if ($dateTo && $r['appointment_date'] > $dateTo) return false;
+                return true;
+            }));
+
+            // searchが指定されている場合のみ、顧客を個別に参照して判定
+            if ($search !== null && $search !== '') {
+                $count = 0;
+                foreach ($rows as $r) {
+                    $ok = false;
+                    if (!empty($r['customer_id'])) {
+                        try {
+                            $c = $this->db->fetchOne('customers', [
+                                'customer_id' => $r['customer_id'],
+                                'tenant_id' => $tenantId,
+                            ], 'first_name,last_name,phone,email');
+                            if ($c) {
+                                $hay = mb_strtolower(implode(' ', [
+                                    $c['first_name'] ?? '', $c['last_name'] ?? '', $c['phone'] ?? '', $c['email'] ?? ''
+                                ]));
+                                $ok = (mb_strpos($hay, $search) !== false);
+                            }
+                        } catch (Exception $e) { /* ignore */ }
+                    }
+                    if ($ok) { $count++; }
+                }
+                return $count;
             }
-            
-            $stmt->execute();
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            return (int)$result['total'];
-        } catch (PDOException $e) {
+            return count($rows);
+        } catch (Exception $e) {
             error_log("getTotalAppointmentsCount エラー: " . $e->getMessage());
             return 0;
         }
@@ -163,27 +211,71 @@ class Appointment {
      * @return array|false 予約データ。見つからない場合はfalse
      */
     public function getAppointmentById($appointment_id) {
-        $sql = "SELECT a.*, 
-                c.first_name AS customer_first_name, c.last_name AS customer_last_name, 
-                c.phone AS customer_phone, c.email AS customer_email,
-                s.name AS service_name, s.duration AS service_duration, s.price AS service_price,
-                st.first_name AS staff_first_name, st.last_name AS staff_last_name,
-                sl.name AS salon_name
-                FROM appointments a
-                LEFT JOIN customers c ON a.customer_id = c.customer_id
-                LEFT JOIN services s ON a.service_id = s.service_id
-                LEFT JOIN staff st ON a.staff_id = st.staff_id
-                LEFT JOIN salons sl ON a.salon_id = sl.salon_id
-                WHERE a.appointment_id = :appointment_id";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':appointment_id', $appointment_id, PDO::PARAM_INT);
-            $stmt->execute();
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            return $result ? $result : false;
-        } catch (PDOException $e) {
+            $tenantId = getCurrentTenantId();
+            $a = $this->db->fetchOne('appointments', [
+                'appointment_id' => $appointment_id,
+                'tenant_id' => $tenantId,
+            ]);
+            if (!$a) { return false; }
+
+            // 顧客
+            if (!empty($a['customer_id'])) {
+                try {
+                    $c = $this->db->fetchOne('customers', [
+                        'customer_id' => $a['customer_id'],
+                        'tenant_id' => $tenantId,
+                    ], 'first_name,last_name,phone,email');
+                    if ($c) {
+                        $a['customer_first_name'] = $c['first_name'] ?? null;
+                        $a['customer_last_name'] = $c['last_name'] ?? null;
+                        $a['customer_phone'] = $c['phone'] ?? null;
+                        $a['customer_email'] = $c['email'] ?? null;
+                    }
+                } catch (Exception $e) { /* ignore */ }
+            }
+            // サービス
+            if (!empty($a['service_id'])) {
+                try {
+                    $s = $this->db->fetchOne('services', [
+                        'service_id' => $a['service_id'],
+                        'tenant_id' => $tenantId,
+                    ], 'name,duration,price');
+                    if ($s) {
+                        $a['service_name'] = $s['name'] ?? null;
+                        $a['service_duration'] = $s['duration'] ?? null;
+                        $a['service_price'] = $s['price'] ?? null;
+                    }
+                } catch (Exception $e) { /* ignore */ }
+            }
+            // スタッフ
+            if (!empty($a['staff_id'])) {
+                try {
+                    $st = $this->db->fetchOne('staff', [
+                        'staff_id' => $a['staff_id'],
+                        'tenant_id' => $tenantId,
+                    ], 'first_name,last_name');
+                    if ($st) {
+                        $a['staff_first_name'] = $st['first_name'] ?? null;
+                        $a['staff_last_name'] = $st['last_name'] ?? null;
+                    }
+                } catch (Exception $e) { /* ignore */ }
+            }
+            // サロン
+            if (!empty($a['salon_id'])) {
+                try {
+                    $sl = $this->db->fetchOne('salons', [
+                        'salon_id' => $a['salon_id'],
+                        'tenant_id' => $tenantId,
+                    ], 'name');
+                    if ($sl) {
+                        $a['salon_name'] = $sl['name'] ?? null;
+                    }
+                } catch (Exception $e) { /* ignore */ }
+            }
+
+            return $a;
+        } catch (Exception $e) {
             error_log("getAppointmentById エラー: " . $e->getMessage());
             return false;
         }
@@ -222,7 +314,6 @@ class Appointment {
             // 既存の重複予約チェック
             $hasConflict = false;
             try {
-                // 重複予約チェックのパラメータを正しく設定
                 $hasConflict = $this->checkScheduleConflict(
                     $data['salon_id'],
                     $data['staff_id'],
@@ -233,7 +324,6 @@ class Appointment {
                 );
             } catch (Exception $e) {
                 error_log("予約時間チェックエラー: " . $e->getMessage());
-                // エラーが発生した場合は安全側に倒して、重複がないとする
                 $hasConflict = false;
             }
 
@@ -244,98 +334,50 @@ class Appointment {
 
             // 時間形式の正規化
             $data['start_time'] = $this->ensureTimeFormat($data['start_time']);
-            
-            // end_timeが指定されていない場合は、タイプに基づいて計算
             if (empty($data['end_time'])) {
-                if ($isTaskType) {
-                    // 業務タイプの場合、デフォルトの時間を30分に設定
-                    $data['end_time'] = date('H:i:s', strtotime($data['start_time']) + (30 * 60));
-                } else {
-                    // サービスの場合は30分をデフォルトにする（本来はサービス時間を使うべき）
-                    $data['end_time'] = date('H:i:s', strtotime($data['start_time']) + (30 * 60));
-                    
-                    // サービス時間の取得が実装されている場合は、そちらを使用（現在は省略）
-                    // $serviceDao = new Service();
-                    // $service = $serviceDao->getById($data['service_id']);
-                    // if ($service) {
-                    //     $duration = $service['duration'];
-                    //     $data['end_time'] = date('H:i:s', strtotime($data['start_time']) + ($duration * 60));
-                    // }
-                }
+                // デフォルト30分
+                $data['end_time'] = date('H:i:s', strtotime($data['start_time']) + (30 * 60));
             } else {
                 $data['end_time'] = $this->ensureTimeFormat($data['end_time']);
             }
 
             // 業務タイプの場合、ダミーのcustomer_idとservice_idを設定
             if ($isTaskType) {
-                if (empty($data['customer_id'])) {
-                    // ダミーの顧客ID（0や-1など）を使用
-                    $data['customer_id'] = 0;
-                }
-                if (empty($data['service_id'])) {
-                    // ダミーのサービスID（0や-1など）を使用
-                    $data['service_id'] = 0;
-                }
+                if (empty($data['customer_id'])) { $data['customer_id'] = 0; }
+                if (empty($data['service_id'])) { $data['service_id'] = 0; }
             }
 
-            // テナントIDの設定（未設定の場合はdefault_tenant_idを使用）
-            if (empty($data['tenant_id']) && !empty($_SESSION['tenant_id'])) {
-                $data['tenant_id'] = $_SESSION['tenant_id'];
-            } elseif (empty($data['tenant_id'])) {
-                $data['tenant_id'] = SYSTEM_TENANT_ID;
+            // テナントID
+            if (empty($data['tenant_id'])) {
+                $data['tenant_id'] = getCurrentTenantId();
             }
 
-            // SQL文の準備 - appointment_typeとtask_descriptionを追加
-            $sql = "INSERT INTO appointments 
-                    (salon_id, tenant_id, customer_id, staff_id, service_id, 
-                     appointment_date, start_time, end_time, status, notes, 
-                     appointment_type, task_description) 
-                    VALUES 
-                    (:salon_id, :tenant_id, :customer_id, :staff_id, :service_id, 
-                     :appointment_date, :start_time, :end_time, :status, :notes,
-                     :appointment_type, :task_description)";
-            
-            $stmt = $this->conn->prepare($sql);
-            
-            // パラメータのバインド
-            $stmt->bindParam(':salon_id', $data['salon_id'], PDO::PARAM_INT);
-            $stmt->bindParam(':tenant_id', $data['tenant_id'], PDO::PARAM_INT);
-            $stmt->bindParam(':customer_id', $data['customer_id'], PDO::PARAM_INT);
-            $stmt->bindParam(':staff_id', $data['staff_id'], PDO::PARAM_INT);
-            $stmt->bindParam(':service_id', $data['service_id'], PDO::PARAM_INT);
-            $stmt->bindParam(':appointment_date', $data['appointment_date']);
-            $stmt->bindParam(':start_time', $data['start_time']);
-            $stmt->bindParam(':end_time', $data['end_time']);
-            
-            // ステータスの設定（デフォルトは'scheduled'）
-            $status = isset($data['status']) ? $data['status'] : 'scheduled';
-            $stmt->bindParam(':status', $status);
-            
-            // 備考の設定
-            $notes = isset($data['notes']) ? $data['notes'] : null;
-            $stmt->bindParam(':notes', $notes);
-            
-            // appointment_typeの設定（デフォルトは'customer'）
-            $appointmentType = isset($data['appointment_type']) ? $data['appointment_type'] : 'customer';
-            $stmt->bindParam(':appointment_type', $appointmentType);
-            
-            // task_descriptionの設定
-            $taskDescription = isset($data['task_description']) ? $data['task_description'] : null;
-            $stmt->bindParam(':task_description', $taskDescription);
-            
-            error_log("SQL実行: " . $sql);
-            error_log("パラメータ: " . json_encode($data));
-            
-            // SQLの実行
-            $stmt->execute();
-            
-            // 作成された予約IDの取得
-            $appointmentId = $this->conn->lastInsertId();
-            
-            error_log("createAppointment: 予約が正常に作成されました - 予約ID: " . $appointmentId);
-            return $appointmentId;
-            
-        } catch (PDOException $e) {
+            // デフォルト値
+            $payload = [
+                'salon_id' => (int)$data['salon_id'],
+                'tenant_id' => (int)$data['tenant_id'],
+                'customer_id' => (int)($data['customer_id'] ?? 0),
+                'staff_id' => (int)$data['staff_id'],
+                'service_id' => (int)($data['service_id'] ?? 0),
+                'appointment_date' => $data['appointment_date'],
+                'start_time' => $data['start_time'],
+                'end_time' => $data['end_time'],
+                'status' => $data['status'] ?? 'scheduled',
+                'notes' => $data['notes'] ?? null,
+                'appointment_type' => $data['appointment_type'] ?? 'customer',
+                'task_description' => $data['task_description'] ?? null,
+                'created_at' => date('c'),
+                'updated_at' => date('c'),
+            ];
+
+            $res = $this->db->insert('appointments', $payload);
+            if (is_array($res) && !empty($res[0]['appointment_id'])) {
+                $appointmentId = (int)$res[0]['appointment_id'];
+                error_log("createAppointment: 予約が正常に作成されました - 予約ID: " . $appointmentId);
+                return $appointmentId;
+            }
+            return false;
+        } catch (Exception $e) {
             error_log("createAppointment エラー: " . $e->getMessage());
             return false;
         }
@@ -349,86 +391,88 @@ class Appointment {
      * @return bool 成功した場合はtrue、失敗した場合はfalse
      */
     public function updateAppointment($appointment_id, $data) {
-        $sql = "UPDATE appointments SET 
-                customer_id = :customer_id,
-                service_id = :service_id,
-                staff_id = :staff_id,
-                appointment_date = :appointment_date,
-                start_time = :start_time,
-                end_time = :end_time,
-                status = :status,
-                notes = :notes,
-                appointment_type = :appointment_type,
-                task_description = :task_description,
-                updated_at = NOW()
-                WHERE appointment_id = :appointment_id";
-        
         try {
-            // 更新前に予約が存在するか確認
-            $checkSql = "SELECT appointment_id, appointment_type FROM appointments WHERE appointment_id = :appointment_id";
-            $checkStmt = $this->conn->prepare($checkSql);
-            $checkStmt->bindValue(':appointment_id', $appointment_id, PDO::PARAM_INT);
-            $checkStmt->execute();
-            
-            $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            $tenantId = getCurrentTenantId();
+            // 既存レコード確認
+            $existing = $this->db->fetchOne('appointments', [
+                'appointment_id' => $appointment_id,
+                'tenant_id' => $tenantId,
+            ]);
             if (!$existing) {
                 $this->setLastErrorMessage("指定された予約ID ($appointment_id) は存在しません。");
                 return false;
             }
-            
-            // 業務タイプの場合、customer_idとservice_idのデフォルト値を設定
-            $isTaskType = isset($data['appointment_type']) && $data['appointment_type'] === 'task';
+
+            // 業務タイプの取り扱い
+            $newType = $data['appointment_type'] ?? ($existing['appointment_type'] ?? 'customer');
+            $isTaskType = ($newType === 'task');
+
+            // デフォルト値の整備（業務タイプの場合）
+            $customer_id = array_key_exists('customer_id', $data) ? $data['customer_id'] : ($existing['customer_id'] ?? 0);
+            $service_id  = array_key_exists('service_id', $data) ? $data['service_id']  : ($existing['service_id']  ?? 0);
             if ($isTaskType) {
-                if (empty($data['customer_id']) || $data['customer_id'] === '') {
-                    $data['customer_id'] = 0;
-                    error_log("業務タイプのため、customer_idにデフォルト値0を設定しました");
-                }
-                if (empty($data['service_id']) || $data['service_id'] === '') {
-                    $data['service_id'] = 0;
-                    error_log("業務タイプのため、service_idにデフォルト値0を設定しました");
-                }
+                if ($customer_id === null || $customer_id === '' ) { $customer_id = 0; }
+                if ($service_id  === null || $service_id  === '' ) { $service_id  = 0; }
             }
-            
-            // データログ
-            error_log("更新対象の予約ID: $appointment_id, タイプ: " . ($data['appointment_type'] ?? $existing['appointment_type'] ?? 'unknown'));
-            
-            $stmt = $this->conn->prepare($sql);
-            
-            // パラメータをバインド
-            $stmt->bindValue(':appointment_id', $appointment_id, PDO::PARAM_INT);
-            
-            // NULLや空文字列の場合は0または適切なデフォルト値を設定
-            $customer_id = !empty($data['customer_id']) ? $data['customer_id'] : 0;
-            $service_id = !empty($data['service_id']) ? $data['service_id'] : 0;
-            $staff_id = !empty($data['staff_id']) ? $data['staff_id'] : null;
-            
-            $stmt->bindValue(':customer_id', $customer_id, PDO::PARAM_INT);
-            $stmt->bindValue(':service_id', $service_id, PDO::PARAM_INT);
-            $stmt->bindValue(':staff_id', $staff_id, isset($staff_id) ? PDO::PARAM_INT : PDO::PARAM_NULL);
-            $stmt->bindValue(':appointment_date', $data['appointment_date']);
-            $stmt->bindValue(':start_time', $data['start_time']);
-            $stmt->bindValue(':end_time', $data['end_time'] ?? null);
-            $stmt->bindValue(':status', $data['status'] ?? 'scheduled');
-            $stmt->bindValue(':notes', $data['notes'] ?? null);
-            $stmt->bindValue(':appointment_type', $data['appointment_type'] ?? 'customer');
-            $stmt->bindValue(':task_description', $data['task_description'] ?? null);
-            
-            // パラメータをログに記録
-            error_log("SQL実行パラメータ - appointment_id: $appointment_id, customer_id: $customer_id, service_id: $service_id, staff_id: " . ($staff_id ?? 'NULL'));
-            
-            $stmt->execute();
-            
-            // 更新結果のログ
-            $rowCount = $stmt->rowCount();
-            error_log("updateAppointment: 更新された行数: $rowCount");
-            
-            if ($rowCount > 0) {
-                return true;
+
+            $staff_id = array_key_exists('staff_id', $data) ? $data['staff_id'] : ($existing['staff_id'] ?? null);
+            $appointment_date = array_key_exists('appointment_date', $data) ? $data['appointment_date'] : ($existing['appointment_date'] ?? null);
+
+            // 時間の正規化
+            $start_time = array_key_exists('start_time', $data) ? $this->ensureTimeFormat($data['start_time']) : ($existing['start_time'] ?? null);
+            if (array_key_exists('end_time', $data)) {
+                $end_time = $data['end_time'] !== null && $data['end_time'] !== '' ? $this->ensureTimeFormat($data['end_time']) : null;
             } else {
-                $this->setLastErrorMessage("予約の更新に失敗しました。データに変更がないか、予約IDが無効です。");
-                return false;
+                $end_time = $existing['end_time'] ?? null;
             }
-        } catch (PDOException $e) {
+            // start_timeが更新されend_timeが未指定なら30分後に補完
+            if ($start_time && !$end_time) {
+                $end_time = date('H:i:s', strtotime($start_time) + (30 * 60));
+            }
+
+            // 競合チェック（必要情報が揃っている場合のみ）
+            if (!empty($existing['salon_id']) && $staff_id && $appointment_date && $start_time) {
+                $hasConflict = $this->checkScheduleConflict(
+                    (int)$existing['salon_id'],
+                    (int)$staff_id,
+                    $appointment_date,
+                    $start_time,
+                    $end_time ?: date('H:i:s', strtotime($start_time) + (30 * 60)),
+                    $appointment_id
+                );
+                if ($hasConflict) {
+                    $this->setLastErrorMessage('予約時間が他の予約と重複しています。');
+                    return false;
+                }
+            }
+
+            // 更新ペイロード作成（指定がないフィールドは現状維持）
+            $payload = [
+                'customer_id' => (int)$customer_id,
+                'service_id' => (int)$service_id,
+                'staff_id' => $staff_id !== null && $staff_id !== '' ? (int)$staff_id : null,
+                'appointment_date' => $appointment_date,
+                'start_time' => $start_time,
+                'end_time' => $end_time,
+                'status' => array_key_exists('status', $data) ? ($data['status'] ?? $existing['status'] ?? 'scheduled') : ($existing['status'] ?? 'scheduled'),
+                'notes' => array_key_exists('notes', $data) ? ($data['notes'] ?? null) : ($existing['notes'] ?? null),
+                'appointment_type' => $newType,
+                'task_description' => array_key_exists('task_description', $data) ? ($data['task_description'] ?? null) : ($existing['task_description'] ?? null),
+                'updated_at' => date('c'),
+            ];
+
+            // ログ出力
+            error_log("updateAppointment payload: " . json_encode($payload));
+
+            $ok = $this->db->update('appointments', $payload, [
+                'appointment_id' => $appointment_id,
+                'tenant_id' => $tenantId,
+            ]);
+
+            if ($ok) { return true; }
+            $this->setLastErrorMessage('予約の更新に失敗しました。');
+            return false;
+        } catch (Exception $e) {
             $errorMessage = "updateAppointment エラー: " . $e->getMessage();
             $this->setLastErrorMessage($errorMessage);
             error_log($errorMessage);
@@ -444,18 +488,17 @@ class Appointment {
      * @return bool 成功した場合はtrue、失敗した場合はfalse
      */
     public function updateAppointmentStatus($appointment_id, $status) {
-        $sql = "UPDATE appointments SET 
-                status = :status,
-                updated_at = NOW()
-                WHERE appointment_id = :appointment_id";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':appointment_id', $appointment_id, PDO::PARAM_INT);
-            $stmt->bindValue(':status', $status);
-            $stmt->execute();
-            return $stmt->rowCount() > 0;
-        } catch (PDOException $e) {
+            $tenantId = getCurrentTenantId();
+            $ok = $this->db->update('appointments', [
+                'status' => $status,
+                'updated_at' => date('c'),
+            ], [
+                'appointment_id' => $appointment_id,
+                'tenant_id' => $tenantId,
+            ]);
+            return (bool)$ok;
+        } catch (Exception $e) {
             error_log("updateAppointmentStatus エラー: " . $e->getMessage());
             return false;
         }
@@ -468,14 +511,13 @@ class Appointment {
      * @return bool 成功した場合はtrue、失敗した場合はfalse
      */
     public function deleteAppointment($appointment_id) {
-        $sql = "DELETE FROM appointments WHERE appointment_id = :appointment_id";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':appointment_id', $appointment_id, PDO::PARAM_INT);
-            $stmt->execute();
-            return $stmt->rowCount() > 0;
-        } catch (PDOException $e) {
+            $tenantId = getCurrentTenantId();
+            return (bool)$this->db->delete('appointments', [
+                'appointment_id' => $appointment_id,
+                'tenant_id' => $tenantId,
+            ]);
+        } catch (Exception $e) {
             error_log("deleteAppointment エラー: " . $e->getMessage());
             return false;
         }
@@ -494,53 +536,33 @@ class Appointment {
      */
     public function checkScheduleConflict($salon_id, $staff_id, $date, $start_time, $end_time, $exclude_appointment_id = null) {
         try {
-            // パラメータをフォーマット
             $start_time = $this->ensureTimeFormat($start_time);
-            if ($end_time) {
-                $end_time = $this->ensureTimeFormat($end_time);
-            } else {
-                // 終了時間が指定されていない場合、開始時間の30分後をデフォルトに
-                $end_time = date('H:i:s', strtotime($start_time) + (30 * 60));
+            $end_time = $end_time ? $this->ensureTimeFormat($end_time) : date('H:i:s', strtotime($start_time) + (30 * 60));
+            $tenantId = getCurrentTenantId();
+
+            // 該当日の予約を取得してPHP側で重複判定
+            $rows = $this->db->fetchAll('appointments', [
+                'salon_id' => $salon_id,
+                'tenant_id' => $tenantId,
+                'staff_id' => $staff_id,
+                'appointment_date' => $date,
+            ], '*', ['limit' => 1000]);
+
+            foreach ($rows as $r) {
+                if (in_array($r['status'] ?? '', ['cancelled', 'no_show'], true)) { continue; }
+                if ($exclude_appointment_id && (int)$r['appointment_id'] === (int)$exclude_appointment_id) { continue; }
+                $s = $this->ensureTimeFormat($r['start_time']);
+                $e = $this->ensureTimeFormat($r['end_time']);
+                // 重なり条件
+                $overlap = (($s <= $start_time && $e > $start_time) ||
+                            ($s < $end_time && $e >= $end_time) ||
+                            ($s >= $start_time && $e <= $end_time));
+                if ($overlap) { return true; }
             }
-            
-            // クエリ構築
-            $sql = "SELECT COUNT(*) as count FROM appointments 
-                    WHERE salon_id = ? 
-                    AND staff_id = ? 
-                    AND appointment_date = ? 
-                    AND status NOT IN ('cancelled', 'no_show')
-                    AND (
-                        (start_time <= ? AND end_time > ?) OR 
-                        (start_time < ? AND end_time >= ?) OR
-                        (start_time >= ? AND end_time <= ?)
-                    )";
-            
-            // パラメータ配列を準備
-            $params = [
-                $salon_id,
-                $staff_id,
-                $date,
-                $start_time, $start_time,
-                $end_time, $end_time,
-                $start_time, $end_time
-            ];
-            
-            // 除外する予約IDがある場合
-            if ($exclude_appointment_id) {
-                $sql .= " AND appointment_id != ?";
-                $params[] = $exclude_appointment_id;
-            }
-            
-            $stmt = $this->conn->prepare($sql);
-            
-            // パラメータをバインド（位置パラメータを使用）
-            $stmt->execute($params);
-            
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            return $result['count'] > 0;
-        } catch (PDOException $e) {
+            return false;
+        } catch (Exception $e) {
             error_log("checkScheduleConflict エラー: " . $e->getMessage());
-            return false; // エラーの場合は衝突なしと見なす
+            return false;
         }
     }
     
@@ -553,26 +575,23 @@ class Appointment {
      * @return array 日付ごとの予約数
      */
     public function getAppointmentCountsByDateRange($salon_id, $start_date, $end_date) {
-        $sql = "SELECT appointment_date, COUNT(*) as count 
-                FROM appointments 
-                WHERE salon_id = :salon_id 
-                AND appointment_date BETWEEN :start_date AND :end_date
-                GROUP BY appointment_date";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':salon_id', $salon_id, PDO::PARAM_INT);
-            $stmt->bindValue(':start_date', $start_date);
-            $stmt->bindValue(':end_date', $end_date);
-            $stmt->execute();
-            
+            $tenantId = getCurrentTenantId();
+            // salonとtenantで絞り込み、PHP側で日付範囲と集計
+            $rows = $this->db->fetchAll('appointments', [
+                'salon_id' => $salon_id,
+                'tenant_id' => $tenantId,
+            ], 'appointment_date', [ 'limit' => 5000 ]);
+
             $result = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $result[$row['appointment_date']] = (int)$row['count'];
+            foreach ($rows as $r) {
+                $d = $r['appointment_date'];
+                if ($d < $start_date || $d > $end_date) { continue; }
+                if (!isset($result[$d])) { $result[$d] = 0; }
+                $result[$d]++;
             }
-            
             return $result;
-        } catch (PDOException $e) {
+        } catch (Exception $e) {
             error_log("getAppointmentCountsByDateRange エラー: " . $e->getMessage());
             return [];
         }
@@ -586,23 +605,36 @@ class Appointment {
      * @return array 予約履歴データ
      */
     public function getCustomerAppointmentHistory($customer_id, $limit = 10) {
-        $sql = "SELECT a.*, 
-                s.name AS service_name, 
-                st.first_name AS staff_first_name, st.last_name AS staff_last_name
-                FROM appointments a
-                LEFT JOIN services s ON a.service_id = s.service_id
-                LEFT JOIN staff st ON a.staff_id = st.staff_id
-                WHERE a.customer_id = :customer_id
-                ORDER BY a.appointment_date DESC, a.start_time DESC
-                LIMIT :limit";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':customer_id', $customer_id, PDO::PARAM_INT);
-            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-            $stmt->execute();
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
+            $tenantId = getCurrentTenantId();
+            // まず予約本体を取得
+            $rows = $this->db->fetchAll('appointments', [
+                'customer_id' => $customer_id,
+                'tenant_id' => $tenantId,
+            ], '*', [
+                'order' => 'appointment_date.desc,start_time.desc',
+                'limit' => (int)$limit,
+            ]);
+
+            // サービス・スタッフ名の付与
+            $enriched = [];
+            foreach ($rows as $r) {
+                if (!empty($r['service_id'])) {
+                    try {
+                        $s = $this->db->fetchOne('services', [ 'service_id' => $r['service_id'], 'tenant_id' => $tenantId ], 'name');
+                        if ($s) { $r['service_name'] = $s['name'] ?? null; }
+                    } catch (Exception $e) { /* ignore */ }
+                }
+                if (!empty($r['staff_id'])) {
+                    try {
+                        $st = $this->db->fetchOne('staff', [ 'staff_id' => $r['staff_id'], 'tenant_id' => $tenantId ], 'first_name,last_name');
+                        if ($st) { $r['staff_first_name'] = $st['first_name'] ?? null; $r['staff_last_name'] = $st['last_name'] ?? null; }
+                    } catch (Exception $e) { /* ignore */ }
+                }
+                $enriched[] = $r;
+            }
+            return $enriched;
+        } catch (Exception $e) {
             error_log("getCustomerAppointmentHistory エラー: " . $e->getMessage());
             return [];
         }
@@ -619,46 +651,41 @@ class Appointment {
      * @return array|false 競合する予約情報、競合がなければfalse
      */
     public function checkTimeConflict($date, $start_time, $end_time, $staff_id, $exclude_appointment_id = null) {
-        // 時間形式の統一（HH:MM:SS形式に）
         $start_time = $this->ensureTimeFormat($start_time);
         $end_time = $this->ensureTimeFormat($end_time);
-        
-        $sql = "SELECT a.*, 
-                c.first_name AS customer_first_name, c.last_name AS customer_last_name,
-                s.name AS service_name
-                FROM appointments a
-                LEFT JOIN customers c ON a.customer_id = c.customer_id
-                LEFT JOIN services s ON a.service_id = s.service_id
-                WHERE a.staff_id = :staff_id 
-                AND a.appointment_date = :date 
-                AND a.status NOT IN ('cancelled', 'no_show')
-                AND (
-                    (a.start_time <= :start_time AND a.end_time > :start_time) OR 
-                    (a.start_time < :end_time AND a.end_time >= :end_time) OR
-                    (a.start_time >= :start_time AND a.end_time <= :end_time)
-                )";
-        
-        // 除外する予約IDがある場合
-        if ($exclude_appointment_id) {
-            $sql .= " AND a.appointment_id != :exclude_id";
-        }
-        
+        $tenantId = getCurrentTenantId();
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':staff_id', $staff_id, PDO::PARAM_INT);
-            $stmt->bindValue(':date', $date);
-            $stmt->bindValue(':start_time', $start_time);
-            $stmt->bindValue(':end_time', $end_time);
-            
-            if ($exclude_appointment_id) {
-                $stmt->bindValue(':exclude_id', $exclude_appointment_id, PDO::PARAM_INT);
+            $rows = $this->db->fetchAll('appointments', [
+                'staff_id' => $staff_id,
+                'tenant_id' => $tenantId,
+                'appointment_date' => $date,
+            ], '*', ['limit' => 1000]);
+            foreach ($rows as $r) {
+                if (in_array($r['status'] ?? '', ['cancelled', 'no_show'], true)) { continue; }
+                if ($exclude_appointment_id && (int)$r['appointment_id'] === (int)$exclude_appointment_id) { continue; }
+                $s = $this->ensureTimeFormat($r['start_time']);
+                $e = $this->ensureTimeFormat($r['end_time']);
+                $overlap = (($s <= $start_time && $e > $start_time) ||
+                            ($s < $end_time && $e >= $end_time) ||
+                            ($s >= $start_time && $e <= $end_time));
+                if ($overlap) {
+                    // 付加情報
+                    if (!empty($r['customer_id'])) {
+                        $c = $this->db->fetchOne('customers', ['customer_id' => $r['customer_id'], 'tenant_id' => $tenantId], 'first_name,last_name');
+                        if ($c) {
+                            $r['customer_first_name'] = $c['first_name'] ?? null;
+                            $r['customer_last_name'] = $c['last_name'] ?? null;
+                        }
+                    }
+                    if (!empty($r['service_id'])) {
+                        $s2 = $this->db->fetchOne('services', ['service_id' => $r['service_id'], 'tenant_id' => $tenantId], 'name');
+                        if ($s2) { $r['service_name'] = $s2['name'] ?? null; }
+                    }
+                    return $r;
+                }
             }
-            
-            $stmt->execute();
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            return $result ? $result : false;
-        } catch (PDOException $e) {
+            return false;
+        } catch (Exception $e) {
             error_log("checkTimeConflict エラー: " . $e->getMessage());
             return false;
         }
@@ -675,31 +702,17 @@ class Appointment {
      */
     public function updateAppointmentTime($appointment_id, $new_date, $new_time, $new_end_time = null) {
         try {
-            // 開始日時のフォーマット
             $start_time = $new_time . ':00';
-            
-            // 終了時間が指定されていない場合は、開始時間から30分後をデフォルトとする
-            if ($new_end_time === null) {
-                $end_time = date('H:i:s', strtotime($new_time . ':00') + 1800); // 30分後
-            } else {
-                $end_time = $new_end_time . ':00';
-            }
-            
-            $sql = "UPDATE appointments 
-                    SET appointment_date = :appointment_date,
-                        start_time = :start_time,
-                        end_time = :end_time,
-                        updated_at = NOW()
-                    WHERE appointment_id = :appointment_id";
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(':appointment_date', $new_date, PDO::PARAM_STR);
-            $stmt->bindParam(':start_time', $start_time, PDO::PARAM_STR);
-            $stmt->bindParam(':end_time', $end_time, PDO::PARAM_STR);
-            $stmt->bindParam(':appointment_id', $appointment_id, PDO::PARAM_INT);
-            
-            return $stmt->execute();
-        } catch (PDOException $e) {
+            $end_time = $new_end_time === null ? date('H:i:s', strtotime($new_time . ':00') + 1800) : ($new_end_time . ':00');
+            $tenantId = getCurrentTenantId();
+            $update = [
+                'appointment_date' => $new_date,
+                'start_time' => $start_time,
+                'end_time' => $end_time,
+                'updated_at' => date('c'),
+            ];
+            return $this->db->update('appointments', $update, ['appointment_id' => $appointment_id, 'tenant_id' => $tenantId]);
+        } catch (Exception $e) {
             error_log("updateAppointmentTime エラー: " . $e->getMessage());
             return false;
         }
@@ -732,14 +745,10 @@ class Appointment {
      * @return string HH:MM:SS 形式の時間
      */
     private function ensureTimeFormat($time) {
-        // セグメント数をチェック
         $parts = explode(':', $time);
-        
-        // 秒の部分がない場合は追加
         if (count($parts) === 2) {
             return $time . ':00';
         }
-        
         return $time;
     }
 
@@ -751,29 +760,17 @@ class Appointment {
      */
     public function searchCustomers($tenantId, $query) {
         try {
-            $query = '%' . $query . '%';
-            $sql = "SELECT customer_id, first_name, last_name, phone, email
-                    FROM customers
-                    WHERE tenant_id = ? AND (
-                        first_name LIKE ? OR
-                        last_name LIKE ? OR
-                        CONCAT(first_name, ' ', last_name) LIKE ? OR
-                        phone LIKE ? OR
-                        email LIKE ?
-                    )
-                    LIMIT 20";
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(1, $tenantId, PDO::PARAM_INT);
-            $stmt->bindParam(2, $query, PDO::PARAM_STR);
-            $stmt->bindParam(3, $query, PDO::PARAM_STR);
-            $stmt->bindParam(4, $query, PDO::PARAM_STR);
-            $stmt->bindParam(5, $query, PDO::PARAM_STR);
-            $stmt->bindParam(6, $query, PDO::PARAM_STR);
-            $stmt->execute();
-            
-            $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            return $customers;
+            // まずはテナントの顧客をある程度取得してからPHP側でフィルタ
+            $rows = $this->db->fetchAll('customers', ['tenant_id' => $tenantId], 'customer_id,first_name,last_name,phone,email', ['limit' => 500]);
+            $q = mb_strtolower($query);
+            $filtered = array_values(array_filter($rows, function ($r) use ($q) {
+                $full = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
+                $hay = mb_strtolower(implode(' ', [
+                    $r['first_name'] ?? '', $r['last_name'] ?? '', $full, $r['phone'] ?? '', $r['email'] ?? ''
+                ]));
+                return $q === '' ? true : (mb_strpos($hay, $q) !== false);
+            }));
+            return array_slice($filtered, 0, 20);
         } catch (Exception $e) {
             error_log('顧客検索エラー: ' . $e->getMessage());
             return [];
@@ -787,15 +784,9 @@ class Appointment {
      */
     public function getServiceById($serviceId) {
         try {
-            $sql = "SELECT service_id, name, description, duration, price, color
-                    FROM services
-                    WHERE service_id = ?";
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(1, $serviceId, PDO::PARAM_INT);
-            $stmt->execute();
-            
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+            $tenantId = getCurrentTenantId();
+            $row = $this->db->fetchOne('services', ['service_id' => $serviceId, 'tenant_id' => $tenantId], 'service_id,name,description,duration,price,color');
+            return $row ?: null;
         } catch (Exception $e) {
             error_log('サービス情報取得エラー: ' . $e->getMessage());
             return null;
@@ -809,17 +800,8 @@ class Appointment {
      */
     public function getCustomerList($salonId) {
         try {
-            $sql = "SELECT customer_id, first_name, last_name, phone, email
-                    FROM customers
-                    WHERE salon_id = ?
-                    ORDER BY last_name, first_name";
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(1, $salonId, PDO::PARAM_INT);
-            $stmt->execute();
-            
-            $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            return $customers;
+            $tenantId = getCurrentTenantId();
+            return $this->db->fetchAll('customers', ['salon_id' => $salonId, 'tenant_id' => $tenantId], 'customer_id,first_name,last_name,phone,email', ['order' => 'last_name.asc,first_name.asc', 'limit' => 1000]);
         } catch (Exception $e) {
             error_log('顧客リスト取得エラー: ' . $e->getMessage());
             return [];
@@ -833,16 +815,8 @@ class Appointment {
      */
     public function getServiceList($salonId) {
         try {
-            $sql = "SELECT service_id, name, description, duration, price, color
-                    FROM services
-                    WHERE salon_id = ?
-                    ORDER BY name";
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(1, $salonId, PDO::PARAM_INT);
-            $stmt->execute();
-            
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $tenantId = getCurrentTenantId();
+            return $this->db->fetchAll('services', ['salon_id' => $salonId, 'tenant_id' => $tenantId], 'service_id,name,description,duration,price,color', ['order' => 'name.asc', 'limit' => 1000]);
         } catch (Exception $e) {
             error_log('サービス一覧取得エラー: ' . $e->getMessage());
             return [];
@@ -856,17 +830,8 @@ class Appointment {
      */
     public function getStaffList($salonId) {
         try {
-            $sql = "SELECT staff_id, first_name, last_name, email, phone, position
-                    FROM staff
-                    WHERE salon_id = ?
-                    AND status = 'active'
-                    ORDER BY last_name, first_name";
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindParam(1, $salonId, PDO::PARAM_INT);
-            $stmt->execute();
-            
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $tenantId = getCurrentTenantId();
+            return $this->db->fetchAll('staff', ['salon_id' => $salonId, 'tenant_id' => $tenantId, 'status' => 'active'], 'staff_id,first_name,last_name,email,phone,position', ['order' => 'last_name.asc,first_name.asc', 'limit' => 1000]);
         } catch (Exception $e) {
             error_log('スタッフ一覧取得エラー: ' . $e->getMessage());
             return [];
@@ -891,4 +856,4 @@ class Appointment {
         $this->lastErrorMessage = $message;
         error_log('Appointment Error: ' . $message);
     }
-} 
+}

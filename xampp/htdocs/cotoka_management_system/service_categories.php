@@ -25,16 +25,16 @@ $custom_js = ["assets/js/service_categories.js"];
 $debug = [];
 $debug[] = "スクリプト開始: " . date('Y-m-d H:i:s');
 
-// データベース接続状態のテスト
-$db_connection_test = "データベース接続テスト実行中...";
+// データベース接続状態のテスト（Supabase対応）
+$db_connection_test = "Supabaseデータベース接続テスト実行中...";
 try {
-    $test_conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-    if ($test_conn->connect_error) {
-        $db_connection_test .= "MySQLi接続エラー: " . $test_conn->connect_error;
+    $test_db = new Database();
+    $test_conn = $test_db->getConnection();
+    if ($test_conn) {
+        $db_connection_test .= "Supabase接続成功";
         $debug[] = $db_connection_test;
     } else {
-        $db_connection_test .= "MySQLi接続成功";
-        $test_conn->close();
+        $db_connection_test .= "Supabase接続失敗";
         $debug[] = $db_connection_test;
     }
 } catch (Exception $e) {
@@ -587,4 +587,4 @@ try {
 <!-- カテゴリー管理用JavaScript -->
 <script src="assets/js/service_categories.js"></script>
 
-<?php require_once 'includes/footer.php'; ?> 
+<?php require_once 'includes/footer.php'; ?>

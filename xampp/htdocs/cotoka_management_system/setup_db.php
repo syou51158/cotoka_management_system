@@ -1,23 +1,10 @@
 <?php
-require_once 'config.php';
-
-try {
-    $pdo = new PDO("mysql:host=".DB_HOST, DB_USER, DB_PASS);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // データベース作成
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS ".DB_NAME." CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");
-    
-    // テーブル作成
-    $pdo->exec("USE ".DB_NAME);
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(50) NOT NULL,
-        password VARCHAR(255) NOT NULL
-    )");
-
-    echo 'データベースとテーブルが正常に作成されました';
-} catch(PDOException $e) {
-    die("エラーが発生しました: " . $e->getMessage());
-}
+// このファイルは非推奨です。Supabaseデータベースを使用してください。
+echo "<h1>非推奨スクリプト</h1>";
+echo "<p style='color:red'>このスクリプトはMySQLデータベース用で、現在は非推奨です。</p>";
+echo "<p>Cotoka Management SystemはSupabaseデータベースを使用しています。</p>";
+echo "<p>以下のリンクからSupabaseテーブル作成スクリプトを実行してください：</p>";
+echo "<p><a href='create_supabase_tables.php' style='background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Supabaseテーブル作成を実行</a></p>";
+echo "<p><a href='database_check.php' style='background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>データベース診断ツール</a></p>";
+echo "<p><a href='index.php'>メインページに戻る</a></p>";
 ?>

@@ -24,17 +24,11 @@ class Tenant
      */
     public function getAll($status = null)
     {
-        $sql = "SELECT * FROM tenants";
-        $params = [];
-        
+        $filters = [];
         if ($status) {
-            $sql .= " WHERE subscription_status = ?";
-            $params[] = $status;
+            $filters['subscription_status'] = $status;
         }
-        
-        $sql .= " ORDER BY company_name ASC";
-        
-        return $this->db->fetchAll($sql, $params);
+        return $this->db->fetchAll('tenants', $filters, '*', ['order' => 'company_name.asc']);
     }
     
     /**
@@ -45,8 +39,7 @@ class Tenant
      */
     public function getById($tenantId)
     {
-        $sql = "SELECT * FROM tenants WHERE tenant_id = ?";
-        return $this->db->fetchOne($sql, [$tenantId]);
+        return $this->db->fetchOne('tenants', ['tenant_id' => $tenantId]);
     }
     
     /**
@@ -57,8 +50,7 @@ class Tenant
      */
     public function getByEmail($email)
     {
-        $sql = "SELECT * FROM tenants WHERE email = ?";
-        return $this->db->fetchOne($sql, [$email]);
+        return $this->db->fetchOne('tenants', ['email' => $email]);
     }
     
     /**
@@ -69,16 +61,11 @@ class Tenant
      */
     public function getCount($status = null)
     {
-        $sql = "SELECT COUNT(*) as count FROM tenants";
-        $params = [];
-        
+        $filters = [];
         if ($status) {
-            $sql .= " WHERE subscription_status = ?";
-            $params[] = $status;
+            $filters['subscription_status'] = $status;
         }
-        
-        $result = $this->db->fetchOne($sql, $params);
-        return $result['count'] ?? 0;
+        return $this->db->count('tenants', $filters);
     }
     
     /**
@@ -89,55 +76,51 @@ class Tenant
      */
     public function add($data)
     {
-        $this->db->beginTransaction();
-        
+        // Supabase RESTではトランザクションが使えないため、失敗時は補償的に削除を試みる
         try {
-            // テナント情報の登録
-            $sql = "INSERT INTO tenants (company_name, owner_name, email, phone, address, 
-                        subscription_plan, subscription_status, trial_ends_at, subscription_ends_at, 
-                        max_salons, max_users, max_storage_mb) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            
-            $trialEndsAt = date('Y-m-d H:i:s', strtotime('+' . DEFAULT_SUBSCRIPTION_TRIAL_DAYS . ' days'));
-            
-            $params = [
-                $data['company_name'],
-                $data['owner_name'] ?? null,
-                $data['email'],
-                $data['phone'] ?? null,
-                $data['address'] ?? null,
-                $data['subscription_plan'] ?? 'free',
-                $data['subscription_status'] ?? 'trial',
-                $data['trial_ends_at'] ?? $trialEndsAt,
-                $data['subscription_ends_at'] ?? null,
-                $data['max_salons'] ?? 1,
-                $data['max_users'] ?? 3,
-                $data['max_storage_mb'] ?? 100
+            $trialDays = defined('DEFAULT_SUBSCRIPTION_TRIAL_DAYS') ? DEFAULT_SUBSCRIPTION_TRIAL_DAYS : 14;
+            $trialEndsAt = date('Y-m-d H:i:s', strtotime('+' . $trialDays . ' days'));
+
+            $tenantInsert = [
+                'company_name' => $data['company_name'],
+                'owner_name' => $data['owner_name'] ?? null,
+                'email' => $data['email'],
+                'phone' => $data['phone'] ?? null,
+                'address' => $data['address'] ?? null,
+                'subscription_plan' => $data['subscription_plan'] ?? 'free',
+                'subscription_status' => $data['subscription_status'] ?? 'trial',
+                'trial_ends_at' => $data['trial_ends_at'] ?? $trialEndsAt,
+                'subscription_ends_at' => $data['subscription_ends_at'] ?? null,
+                'max_salons' => $data['max_salons'] ?? 1,
+                'max_users' => $data['max_users'] ?? 3,
+                'max_storage_mb' => $data['max_storage_mb'] ?? 100,
             ];
-            
-            $this->db->query($sql, $params);
-            $tenantId = $this->db->lastInsertId();
-            
+
+            $inserted = $this->db->insert('tenants', $tenantInsert);
+            if (empty($inserted) || !isset($inserted[0]['tenant_id'])) {
+                throw new Exception('テナント作成に失敗しました');
+            }
+            $tenantId = $inserted[0]['tenant_id'];
+
             // デフォルトのサロン作成
             if (isset($data['default_salon_name'])) {
-                $salonSql = "INSERT INTO salons (tenant_id, name, address, phone, email) 
-                             VALUES (?, ?, ?, ?, ?)";
-                
-                $salonParams = [
-                    $tenantId,
-                    $data['default_salon_name'],
-                    $data['address'] ?? null,
-                    $data['phone'] ?? null,
-                    $data['email'] ?? null
-                ];
-                
-                $this->db->query($salonSql, $salonParams);
+                try {
+                    $this->db->insert('salons', [
+                        'tenant_id' => $tenantId,
+                        'salon_name' => $data['default_salon_name'],
+                        'address' => $data['address'] ?? null,
+                        'phone' => $data['phone'] ?? null,
+                        'email' => $data['email'] ?? null,
+                    ]);
+                } catch (Exception $e) {
+                    // 補償的にテナントを削除
+                    $this->db->delete('tenants', ['tenant_id' => $tenantId]);
+                    throw $e;
+                }
             }
-            
-            $this->db->commit();
+
             return $tenantId;
         } catch (Exception $e) {
-            $this->db->rollback();
             throw $e;
         }
     }
@@ -151,29 +134,20 @@ class Tenant
      */
     public function update($tenantId, $data)
     {
-        $sql = "UPDATE tenants 
-                SET company_name = ?, owner_name = ?, email = ?, phone = ?, address = ?, 
-                    subscription_plan = ?, subscription_status = ?, trial_ends_at = ?, 
-                    subscription_ends_at = ?, max_salons = ?, max_users = ?, max_storage_mb = ? 
-                WHERE tenant_id = ?";
-        
-        $params = [
-            $data['company_name'],
-            $data['owner_name'] ?? null,
-            $data['email'],
-            $data['phone'] ?? null,
-            $data['address'] ?? null,
-            $data['subscription_plan'] ?? 'free',
-            $data['subscription_status'] ?? 'trial',
-            $data['trial_ends_at'] ?? null,
-            $data['subscription_ends_at'] ?? null,
-            $data['max_salons'] ?? 1,
-            $data['max_users'] ?? 3,
-            $data['max_storage_mb'] ?? 100,
-            $tenantId
+        $updateData = [
+            'company_name' => $data['company_name'],
+            'email' => $data['email'],
+            'phone' => $data['phone'] ?? null,
+            'address' => $data['address'] ?? null,
+            'subscription_plan' => $data['subscription_plan'] ?? 'free',
+            'subscription_status' => $data['subscription_status'] ?? 'trial',
+            'trial_ends_at' => $data['trial_ends_at'] ?? null,
+            'max_salons' => $data['max_salons'] ?? 1,
+            'max_users' => $data['max_users'] ?? 3,
+            'max_storage_mb' => $data['max_storage_mb'] ?? 100,
         ];
-        
-        $this->db->query($sql, $params);
+
+        return $this->db->update('tenants', $updateData, ['tenant_id' => $tenantId]);
         return true;
     }
     
@@ -194,47 +168,35 @@ class Tenant
         if (!$planInfo) {
             throw new Exception('無効なサブスクリプションプラン');
         }
-        
-        $sql = "UPDATE tenants 
-                SET subscription_plan = ?, subscription_status = ?, subscription_ends_at = ?, 
-                    max_salons = ?, max_users = ?, max_storage_mb = ? 
-                WHERE tenant_id = ?";
-        
-        $params = [
-            $plan,
-            $status,
-            $expiresAt,
-            $planInfo['max_salons'],
-            $planInfo['max_users'],
-            $planInfo['max_storage_mb'],
-            $tenantId
-        ];
-        
-        $this->db->beginTransaction();
-        
-        try {
-            $this->db->query($sql, $params);
-            
-            // サブスクリプション履歴に記録
-            $historySql = "INSERT INTO subscription_history 
-                           (tenant_id, plan, amount, start_date, end_date, payment_status) 
-                           VALUES (?, ?, ?, NOW(), ?, 'paid')";
-            
-            $historyParams = [
-                $tenantId,
-                $plan,
-                $planInfo['price'],
-                $expiresAt ? date('Y-m-d', strtotime($expiresAt)) : date('Y-m-d', strtotime('+1 year'))
-            ];
-            
-            $this->db->query($historySql, $historyParams);
-            
-            $this->db->commit();
-            return true;
-        } catch (Exception $e) {
-            $this->db->rollback();
-            throw $e;
+
+        // まずテナント情報を更新
+        $updated = $this->db->update('tenants', [
+            'subscription_plan' => $plan,
+            'subscription_status' => $status,
+            'subscription_ends_at' => $expiresAt,
+            'max_salons' => $planInfo['max_salons'],
+            'max_users' => $planInfo['max_users'],
+            'max_storage_mb' => $planInfo['max_storage_mb'],
+        ], ['tenant_id' => $tenantId]);
+
+        if (!$updated) {
+            throw new Exception('サブスクリプション更新に失敗しました');
         }
+
+        // サブスクリプション履歴に記録
+        $startDate = date('Y-m-d');
+        $endDate = $expiresAt ? date('Y-m-d', strtotime($expiresAt)) : date('Y-m-d', strtotime('+1 year'));
+
+        $this->db->insert('subscription_history', [
+            'tenant_id' => $tenantId,
+            'plan' => $plan,
+            'amount' => $planInfo['price'],
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'payment_status' => 'paid',
+        ]);
+
+        return true;
     }
     
     /**
@@ -259,21 +221,28 @@ class Tenant
     public function getResourceUsage($tenantId)
     {
         // サロン数
-        $salonCountSql = "SELECT COUNT(*) as count FROM salons WHERE tenant_id = ?";
-        $salonCount = $this->db->fetchOne($salonCountSql, [$tenantId]);
+        $salons = $this->db->count('salons', ['tenant_id' => $tenantId]);
         
         // ユーザー数
-        $userCountSql = "SELECT COUNT(*) as count FROM users WHERE tenant_id = ?";
-        $userCount = $this->db->fetchOne($userCountSql, [$tenantId]);
+        $users = $this->db->count('users', ['tenant_id' => $tenantId]);
         
-        // ストレージ使用量（実装例）
-        $storageUsageSql = "SELECT SUM(file_size) as total FROM files WHERE tenant_id = ?";
-        $storageUsage = $this->db->fetchOne($storageUsageSql, [$tenantId]);
+        // ストレージ使用量（cotokaスキーマにfilesテーブルがない可能性があるため安全に処理）
+        $totalBytes = 0;
+        try {
+            // PostgRESTの集計エイリアス構文を利用（sum:file_size）。取得キーはsumとなる。
+            $sumRow = $this->db->fetchOne('files', ['tenant_id' => $tenantId], 'sum:file_size');
+            if ($sumRow && isset($sumRow['sum'])) {
+                $totalBytes = (int)$sumRow['sum'];
+            }
+        } catch (Exception $e) {
+            // filesテーブルがない場合などは0のまま
+            $totalBytes = 0;
+        }
         
         return [
-            'salons' => $salonCount['count'] ?? 0,
-            'users' => $userCount['count'] ?? 0,
-            'storage_mb' => ($storageUsage['total'] ?? 0) / 1024 / 1024
+            'salons' => $salons,
+            'users' => $users,
+            'storage_mb' => $totalBytes / 1024 / 1024,
         ];
     }
     
@@ -319,36 +288,28 @@ class Tenant
         $now = date('Y-m-d H:i:s');
         $updatedTenants = [];
         
-        // トライアル期間が切れたテナントを検出
-        $trialExpiredSql = "SELECT tenant_id FROM tenants 
-                           WHERE subscription_status = 'trial' 
-                           AND trial_ends_at < ?";
-        
-        $trialExpired = $this->db->fetchAll($trialExpiredSql, [$now]);
-        
-        foreach ($trialExpired as $tenant) {
-            $this->db->query(
-                "UPDATE tenants SET subscription_status = 'expired' WHERE tenant_id = ?",
-                [$tenant['tenant_id']]
-            );
-            $updatedTenants[] = $tenant['tenant_id'];
+        // トライアル期間が切れたテナントを検出（PHP側で時刻比較）
+        $trialTenants = $this->db->fetchAll('tenants', ['subscription_status' => 'trial']);
+        foreach ($trialTenants as $tenant) {
+            if (!empty($tenant['trial_ends_at']) && strtotime($tenant['trial_ends_at']) < $nowTs) {
+                $ok = $this->db->update('tenants', ['subscription_status' => 'expired'], ['tenant_id' => $tenant['tenant_id']]);
+                if ($ok) {
+                    $updatedTenants[] = $tenant['tenant_id'];
+                }
+            }
         }
         
-        // 契約期間が切れたテナントを検出
-        $subExpiredSql = "SELECT tenant_id FROM tenants 
-                         WHERE subscription_status = 'active' 
-                         AND subscription_ends_at < ?";
-        
-        $subExpired = $this->db->fetchAll($subExpiredSql, [$now]);
-        
-        foreach ($subExpired as $tenant) {
-            $this->db->query(
-                "UPDATE tenants SET subscription_status = 'expired' WHERE tenant_id = ?",
-                [$tenant['tenant_id']]
-            );
-            $updatedTenants[] = $tenant['tenant_id'];
+        // 契約期間が切れたテナントを検出（PHP側で時刻比較）
+        $activeTenants = $this->db->fetchAll('tenants', ['subscription_status' => 'active']);
+        foreach ($activeTenants as $tenant) {
+            if (!empty($tenant['subscription_ends_at']) && strtotime($tenant['subscription_ends_at']) < $nowTs) {
+                $ok = $this->db->update('tenants', ['subscription_status' => 'expired'], ['tenant_id' => $tenant['tenant_id']]);
+                if ($ok) {
+                    $updatedTenants[] = $tenant['tenant_id'];
+                }
+            }
         }
         
         return $updatedTenants;
     }
-} 
+}

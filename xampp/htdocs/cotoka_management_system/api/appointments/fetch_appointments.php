@@ -22,9 +22,8 @@ if (!isset($_SESSION['user_id'])) {
 
 // CSRFトークン検証（GETリクエストでは省略できる場合もあり）
 
-// データベース接続
-$db = new Database();
-$conn = $db->getConnection();
+// データベース接続（Supabase REST）
+$db = Database::getInstance();
 
 // レスポンス用の配列
 $response = [
@@ -37,6 +36,7 @@ try {
     // リクエストパラメータの検証
     $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
     $salonId = isset($_GET['salon_id']) ? (int)$_GET['salon_id'] : 0;
+    $tenantId = getCurrentTenantId();
     
     // サロンIDのバリデーション
     if ($salonId <= 0) {
@@ -47,93 +47,101 @@ try {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         throw new Exception('日付の形式が無効です。YYYY-MM-DD形式で指定してください。');
     }
-    
-    // 予約データの取得
-    $appointmentsSql = "
-        SELECT 
-            a.appointment_id AS id,
-            'appointment' AS item_type,
-            a.customer_id,
-            CONCAT(c.last_name, ' ', c.first_name) AS customer_name,
-            a.staff_id,
-            CONCAT(s.last_name, ' ', s.first_name) AS staff_name,
-            a.service_id,
-            sv.name AS service_name,
-            a.appointment_date AS event_date,
-            a.start_time,
-            a.end_time,
-            a.status,
-            a.notes,
-            a.appointment_type,
-            a.task_description,
-            a.created_at,
-            a.updated_at
-        FROM 
-            appointments a
-        LEFT JOIN 
-            customers c ON a.customer_id = c.customer_id
-        LEFT JOIN 
-            staff s ON a.staff_id = s.staff_id
-        LEFT JOIN 
-            services sv ON a.service_id = sv.service_id
-        WHERE 
-            a.salon_id = ?
-            AND a.appointment_date = ?
-    ";
-    
-    $appointmentsStmt = $conn->prepare($appointmentsSql);
-    $appointmentsStmt->execute([$salonId, $date]);
-    $appointments = $appointmentsStmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // 業務データの取得
-    $tasksSql = "
-        SELECT 
-            t.task_id AS id,
-            'task' AS item_type,
-            0 AS customer_id,
-            t.task_description AS customer_name,
-            t.staff_id,
-            CONCAT(s.last_name, ' ', s.first_name) AS staff_name,
-            0 AS service_id,
-            '業務' AS service_name,
-            t.task_date AS event_date,
-            t.start_time,
-            t.end_time,
-            t.status,
-            NULL AS notes,
-            'task' AS appointment_type,
-            t.task_description,
-            t.created_at,
-            t.updated_at
-        FROM 
-            staff_tasks t
-        LEFT JOIN 
-            staff s ON t.staff_id = s.staff_id
-        WHERE 
-            t.salon_id = ?
-            AND t.task_date = ?
-    ";
-    
-    $tasksStmt = $conn->prepare($tasksSql);
-    $tasksStmt->execute([$salonId, $date]);
-    $tasks = $tasksStmt->fetchAll(PDO::FETCH_ASSOC);
-    
+
+    // Supabase（Databaseクラス）で予約データ取得（関連を埋め込み）
+    $appointmentRows = $db->fetchAll(
+        'appointments',
+        [
+            'salon_id' => $salonId,
+            'tenant_id' => $tenantId,
+            'appointment_date' => $date,
+        ],
+        'appointment_id,customer_id,staff_id,service_id,appointment_date,start_time,end_time,status,notes,appointment_type,task_description,created_at,updated_at,customers(first_name,last_name),staff(first_name,last_name),services(name)',
+        [
+            'order' => 'start_time.asc',
+            'limit' => 2000,
+        ]
+    );
+
+    $appointments = array_map(function ($r) {
+        $customer_last = isset($r['customers']['last_name']) ? $r['customers']['last_name'] : '';
+        $customer_first = isset($r['customers']['first_name']) ? $r['customers']['first_name'] : '';
+        $staff_last = isset($r['staff']['last_name']) ? $r['staff']['last_name'] : '';
+        $staff_first = isset($r['staff']['first_name']) ? $r['staff']['first_name'] : '';
+        $service_name = isset($r['services']['name']) ? $r['services']['name'] : null;
+        return [
+            'id' => $r['appointment_id'] ?? null,
+            'item_type' => 'appointment',
+            'customer_id' => $r['customer_id'] ?? null,
+            'customer_name' => trim($customer_last . ' ' . $customer_first),
+            'staff_id' => $r['staff_id'] ?? null,
+            'staff_name' => trim($staff_last . ' ' . $staff_first),
+            'service_id' => $r['service_id'] ?? null,
+            'service_name' => $service_name,
+            'event_date' => $r['appointment_date'] ?? null,
+            'start_time' => $r['start_time'] ?? null,
+            'end_time' => $r['end_time'] ?? null,
+            'status' => $r['status'] ?? null,
+            'notes' => $r['notes'] ?? null,
+            'appointment_type' => $r['appointment_type'] ?? 'customer',
+            'task_description' => $r['task_description'] ?? null,
+            'created_at' => $r['created_at'] ?? null,
+            'updated_at' => $r['updated_at'] ?? null,
+        ];
+    }, $appointmentRows);
+
+    // Supabase（Databaseクラス）で業務（タスク）データ取得（関連を埋め込み）
+    $taskRows = $db->fetchAll(
+        'staff_tasks',
+        [
+            'salon_id' => $salonId,
+            'tenant_id' => $tenantId,
+            'task_date' => $date,
+        ],
+        'task_id,staff_id,task_date,start_time,end_time,status,task_description,created_at,updated_at,staff(first_name,last_name)',
+        [
+            'order' => 'start_time.asc',
+            'limit' => 2000,
+        ]
+    );
+
+    $tasks = array_map(function ($r) {
+        $staff_last = isset($r['staff']['last_name']) ? $r['staff']['last_name'] : '';
+        $staff_first = isset($r['staff']['first_name']) ? $r['staff']['first_name'] : '';
+        return [
+            'id' => $r['task_id'] ?? null,
+            'item_type' => 'task',
+            'customer_id' => 0,
+            'customer_name' => $r['task_description'] ?? '',
+            'staff_id' => $r['staff_id'] ?? null,
+            'staff_name' => trim($staff_last . ' ' . $staff_first),
+            'service_id' => 0,
+            'service_name' => '業務',
+            'event_date' => $r['task_date'] ?? null,
+            'start_time' => $r['start_time'] ?? null,
+            'end_time' => $r['end_time'] ?? null,
+            'status' => $r['status'] ?? null,
+            'notes' => null,
+            'appointment_type' => 'task',
+            'task_description' => $r['task_description'] ?? null,
+            'created_at' => $r['created_at'] ?? null,
+            'updated_at' => $r['updated_at'] ?? null,
+        ];
+    }, $taskRows);
+
     // 予約と業務のデータを統合
     $allAppointments = array_merge($appointments, $tasks);
-    
+
     // 開始時間でソート
-    usort($allAppointments, function($a, $b) {
-        return strtotime($a['start_time']) - strtotime($b['start_time']);
+    usort($allAppointments, function ($a, $b) {
+        return strtotime($a['start_time']) <=> strtotime($b['start_time']);
     });
-    
+
     // レスポンスの設定
     $response['success'] = true;
     $response['message'] = count($allAppointments) . '件のデータを取得しました。';
     $response['data'] = $allAppointments;
-    
-} catch (PDOException $e) {
-    $response['message'] = 'データベースエラーが発生しました: ' . $e->getMessage();
-    error_log('予約・業務データ取得エラー: ' . $e->getMessage());
+
 } catch (Exception $e) {
     $response['message'] = $e->getMessage();
     error_log('予約・業務データ取得エラー: ' . $e->getMessage());
@@ -142,4 +150,4 @@ try {
 // JSONとして結果を返す
 header('Content-Type: application/json');
 echo json_encode($response, JSON_UNESCAPED_UNICODE);
-exit; 
+exit;

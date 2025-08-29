@@ -14,8 +14,8 @@ class Staff
      * データベース接続を初期化
      */
     public function __construct() {
-        $this->db = new Database();
-        $this->conn = $this->db->getConnection();
+        $this->db = Database::getInstance();
+        // $this->conn はSupabase REST APIへの移行により不要
     }
     
     /**
@@ -28,25 +28,45 @@ class Staff
     public function getActiveStaffBySalonId($salon_id, $date = null) {
         $date = $date ?: date('Y-m-d');
         
-        $sql = "SELECT s.* FROM staff s
-                WHERE s.salon_id = :salon_id 
-                AND s.status = 'active'";
-                
-        // 特定の日にスケジュールされているスタッフを優先して取得
-        $sql .= " ORDER BY (
-                    SELECT COUNT(*) FROM appointments a 
-                    WHERE a.staff_id = s.staff_id 
-                    AND a.appointment_date = :date
-                ) DESC, s.last_name ASC, s.first_name ASC";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':salon_id', $salon_id, PDO::PARAM_INT);
-            $stmt->bindValue(':date', $date);
-            $stmt->execute();
+            // まず、対象サロンのアクティブなスタッフを氏名順で取得
+            $staffList = $this->db->fetchAll(
+                'staff',
+                ['salon_id' => $salon_id, 'status' => 'active'],
+                '*',
+                ['order' => 'last_name.asc,first_name.asc']
+            );
             
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
+            // 当日の予約数で並び替えるため、各スタッフの予約数をカウント
+            foreach ($staffList as &$s) {
+                try {
+                    $s['_todays_count'] = (int)$this->db->count('appointments', [
+                        'staff_id' => $s['staff_id'] ?? null,
+                        'appointment_date' => $date,
+                    ]);
+                } catch (Exception $e) {
+                    error_log('getActiveStaffBySalonId count error: ' . $e->getMessage());
+                    $s['_todays_count'] = 0;
+                }
+            }
+            unset($s);
+            
+            // 当日予約数降順、姓・名昇順でソート
+            usort($staffList, function ($a, $b) {
+                $ca = $a['_todays_count'] ?? 0;
+                $cb = $b['_todays_count'] ?? 0;
+                if ($ca !== $cb) return $cb <=> $ca; // 予約数多い順
+                $ln = strcmp($a['last_name'] ?? '', $b['last_name'] ?? '');
+                if ($ln !== 0) return $ln;
+                return strcmp($a['first_name'] ?? '', $b['first_name'] ?? '');
+            });
+            
+            // 補助キーは返却しない
+            foreach ($staffList as &$s) { unset($s['_todays_count']); }
+            unset($s);
+            
+            return $staffList;
+        } catch (Exception $e) {
             error_log("getActiveStaffBySalonId エラー: " . $e->getMessage());
             return [];
         }
@@ -60,21 +80,13 @@ class Staff
      * @return int 勤務スタッフ数
      */
     public function getWorkingStaffCount($salon_id, $date) {
-        // スタッフのシフトテーブルが存在する場合、そこから取得
-        // 現在はスタッフテーブルからアクティブなスタッフ数を返す
-        
-        $sql = "SELECT COUNT(*) as count FROM staff 
-                WHERE salon_id = :salon_id 
-                AND status = 'active'";
-                
+        // 現状はアクティブなスタッフ数を返す（シフトテーブル導入時に拡張）
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':salon_id', $salon_id, PDO::PARAM_INT);
-            $stmt->execute();
-            
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            return (int)($result['count'] ?? 0);
-        } catch (PDOException $e) {
+            return (int)$this->db->count('staff', [
+                'salon_id' => $salon_id,
+                'status' => 'active',
+            ]);
+        } catch (Exception $e) {
             error_log("getWorkingStaffCount エラー: " . $e->getMessage());
             return 0;
         }
@@ -88,31 +100,30 @@ class Staff
      * @return array 利用可能な時間枠の配列
      */
     public function getAvailableTimeSlots($staff_id, $date) {
-        // サロンの営業時間を取得（実装例）
+        // サロンの営業時間を取得
         $businessHours = $this->getBusinessHours($staff_id);
-        $startTime = $businessHours['start'] ?? '10:00'; // デフォルト開始時間
-        $endTime = $businessHours['end'] ?? '20:00';     // デフォルト終了時間
-        
-        // スタッフの予約状況を取得
-        $sql = "SELECT 
-                    appointment_date, 
-                    start_time, 
-                    end_time 
-                FROM appointments 
-                WHERE staff_id = :staff_id 
-                AND appointment_date = :date 
-                AND status NOT IN ('cancelled', 'no_show')
-                ORDER BY start_time";
+        $startTime = $businessHours['start'] ?? '10:00';
+        $endTime = $businessHours['end'] ?? '20:00';
         
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':staff_id', $staff_id, PDO::PARAM_INT);
-            $stmt->bindValue(':date', $date);
-            $stmt->execute();
+            // 該当スタッフ・日付の予約を取得（キャンセル/NO SHOWは後で除外）
+            $bookings = $this->db->fetchAll(
+                'appointments',
+                [
+                    'staff_id' => $staff_id,
+                    'appointment_date' => $date,
+                ],
+                'appointment_date,start_time,end_time,status',
+                ['order' => 'start_time.asc']
+            );
             
-            $bookedSlots = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // キャンセル等を除外
+            $bookedSlots = array_values(array_filter($bookings, function ($b) {
+                $status = strtolower($b['status'] ?? '');
+                return !in_array($status, ['cancelled', 'no_show'], true);
+            }));
             
-            // 利用可能な時間枠を生成（30分間隔でデフォルト設定）
+            // 利用可能な時間枠を生成（30分間隔）
             $availableSlots = [];
             $currentTime = strtotime($date . ' ' . $startTime);
             $endTimeTimestamp = strtotime($date . ' ' . $endTime);
@@ -124,10 +135,8 @@ class Staff
                 // この時間枠が予約済みかチェック
                 $isAvailable = true;
                 foreach ($bookedSlots as $booking) {
-                    $bookingStart = substr($booking['start_time'], 0, 5); // HH:MM 形式
-                    $bookingEnd = substr($booking['end_time'], 0, 5);    // HH:MM 形式
-                    
-                    // 予約時間と重複するかチェック
+                    $bookingStart = substr($booking['start_time'], 0, 5); // HH:MM
+                    $bookingEnd = substr($booking['end_time'], 0, 5);   // HH:MM
                     if (
                         ($slotStart >= $bookingStart && $slotStart < $bookingEnd) ||
                         ($slotEnd > $bookingStart && $slotEnd <= $bookingEnd) ||
@@ -141,7 +150,7 @@ class Staff
                 if ($isAvailable) {
                     $availableSlots[] = [
                         'start' => $slotStart,
-                        'end' => $slotEnd
+                        'end' => $slotEnd,
                     ];
                 }
                 
@@ -149,7 +158,7 @@ class Staff
             }
             
             return $availableSlots;
-        } catch (PDOException $e) {
+        } catch (Exception $e) {
             error_log("getAvailableTimeSlots エラー: " . $e->getMessage());
             return [];
         }
@@ -162,43 +171,23 @@ class Staff
      * @return array 営業時間の連想配列（開始時間、終了時間）
      */
     private function getBusinessHours($staff_id) {
-        // スタッフが所属するサロンIDを取得
-        $sql = "SELECT salon_id FROM staff WHERE staff_id = :staff_id";
-        
         try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':staff_id', $staff_id, PDO::PARAM_INT);
-            $stmt->execute();
-            
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            $salon_id = $result['salon_id'] ?? null;
+            // スタッフが所属するサロンIDを取得
+            $staff = $this->db->fetchOne('staff', ['staff_id' => $staff_id], 'salon_id');
+            $salon_id = $staff['salon_id'] ?? null;
             
             if (!$salon_id) {
-                return [
-                    'start' => '10:00', 
-                    'end' => '20:00'
-                ];
+                return [ 'start' => '10:00', 'end' => '20:00' ];
             }
             
             // サロンの営業時間を取得
-            $sql = "SELECT business_hours FROM salons WHERE salon_id = :salon_id";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bindValue(':salon_id', $salon_id, PDO::PARAM_INT);
-            $stmt->execute();
+            $salon = $this->db->fetchOne('salons', ['salon_id' => $salon_id], 'business_hours');
+            $business_hours_str = $salon['business_hours'] ?? '';
             
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            $business_hours_str = $result['business_hours'] ?? '';
-            
-            // 営業時間文字列を解析
-            $hours = $this->parseSalonBusinessHours($business_hours_str);
-            
-            return $hours;
-        } catch (PDOException $e) {
+            return $this->parseSalonBusinessHours($business_hours_str);
+        } catch (Exception $e) {
             error_log("getBusinessHours エラー: " . $e->getMessage());
-            return [
-                'start' => '10:00', 
-                'end' => '20:00'
-            ];
+            return [ 'start' => '10:00', 'end' => '20:00' ];
         }
     }
     

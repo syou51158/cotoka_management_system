@@ -113,6 +113,34 @@ if (isset($_POST['add_staff'])) {
         ]);
         if ($rpc['success']) {
             $add_success = true;
+
+            // 追加したスタッフを現在のサロンに関連付け（中間テーブル: cotoka.staff_salons）
+            $new_staff_id = null;
+            if (isset($rpc['data']) && is_array($rpc['data'])) {
+                $firstRow = $rpc['data'][0] ?? null;
+                if ($firstRow && isset($firstRow['staff_id'])) {
+                    $new_staff_id = (int)$firstRow['staff_id'];
+                }
+            }
+            if (!$new_staff_id && !empty($email)) {
+                $email_esc = str_replace("'", "''", $email);
+                $findSql = "SELECT staff_id FROM cotoka.staff WHERE tenant_id = $tenant_id AND email = '$email_esc' ORDER BY staff_id DESC LIMIT 1";
+                $findRes = supabaseRpcCall('execute_sql', ['query' => $findSql]);
+                if ($findRes['success'] && is_array($findRes['data']) && !empty($findRes['data'][0]['staff_id'])) {
+                    $new_staff_id = (int)$findRes['data'][0]['staff_id'];
+                }
+            }
+            if ($new_staff_id) {
+                $mapSql = "INSERT INTO cotoka.staff_salons (tenant_id, staff_id, salon_id, is_primary) VALUES ($tenant_id, $new_staff_id, $salon_id, true) ON CONFLICT (tenant_id, staff_id, salon_id) DO NOTHING";
+                supabaseRpcCall('execute_sql', ['query' => $mapSql]);
+            }
+            
+            // 成功メッセージをフラッシュメッセージとして保存
+            $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'スタッフが正常に追加されました。'];
+            
+            // リダイレクトして再読み込み（サロン優先の取得ロジック）
+            header('Location: staff_management.php');
+            exit;
         } else {
             $add_error = 'Supabaseエラー: ' . ($rpc['message'] ?? '');
         }
@@ -148,7 +176,9 @@ if (isset($_POST['edit_staff'])) {
             'p_status' => $status
         ]);
         if ($rpc['success']) {
-            $edit_success = true;
+            $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'スタッフ情報が正常に更新されました。'];
+            header('Location: staff_management.php');
+            exit;
         } else {
             $edit_error = 'Supabaseエラー: ' . ($rpc['message'] ?? '');
         }
@@ -167,7 +197,9 @@ if (isset($_POST['delete_staff'])) {
     } else {
         $rpc = supabaseRpcCall('staff_delete_admin', ['p_staff_id' => (int)$staff_id]);
         if ($rpc['success']) {
-            $delete_success = true;
+            $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'スタッフが正常に削除されました。'];
+            header('Location: staff_management.php');
+            exit;
         } else {
             $delete_error = 'Supabaseエラー: ' . ($rpc['message'] ?? '');
         }
@@ -177,16 +209,39 @@ if (isset($_POST['delete_staff'])) {
 // スタッフ一覧を取得
 // スタッフ一覧（Supabase RPC）
 $staff_list = [];
-$rpcStaff = supabaseRpcCall('staff_list_by_salon', ['p_salon_id' => (int)$salon_id]);
-if ($rpcStaff['success']) {
-    $staff_list = is_array($rpcStaff['data']) ? $rpcStaff['data'] : [];
-    $debug_message = "取得されたスタッフ数: " . count($staff_list);
+$debug_message = "テナントID: $tenant_id, サロンID: $salon_id";
+
+// デバッグ用：テナントIDが正しいか確認
+if (!$tenant_id || $tenant_id <= 0) {
+    $error_message = "無効なテナントID: $tenant_id";
+} else {
+    // サロン配属優先でスタッフを取得（中間テーブル: cotoka.staff_salons 結合）
+    $salonSql = "SELECT s.staff_id, s.tenant_id, s.user_id, s.first_name, s.last_name, s.email, s.phone, s.position, s.bio, s.status, s.created_at, s.updated_at\n                 FROM cotoka.staff s\n                 JOIN cotoka.staff_salons ss\n                   ON ss.staff_id = s.staff_id\n                  AND ss.tenant_id = s.tenant_id\n                WHERE ss.salon_id = $salon_id\n                  AND s.tenant_id = $tenant_id\n             ORDER BY s.staff_id DESC";
+    $salonResult = supabaseRpcCall('execute_sql', ['query' => $salonSql]);
+
+    if ($salonResult['success'] && is_array($salonResult['data']) && count($salonResult['data']) > 0) {
+        $staff_list = $salonResult['data'];
+        $debug_message .= " | サロン配属: " . count($staff_list) . "件";
+    } else {
+        // フォールバック: tenant_idベースでスタッフを取得
+        $directSql = "SELECT staff_id, tenant_id, user_id, first_name, last_name, email, phone, position, bio, status, created_at, updated_at FROM cotoka.staff WHERE tenant_id = $tenant_id ORDER BY staff_id DESC";
+        $directResult = supabaseRpcCall('execute_sql', ['query' => $directSql]);
+        
+        if ($directResult['success']) {
+            $staff_list = is_array($directResult['data']) ? $directResult['data'] : [];
+            $debug_message .= " | フォールバック(テナント): " . count($staff_list) . "件";
+        } else {
+            // エラーハンドリング
+            $staff_list = [];
+            $error_message = "スタッフ一覧取得エラー（Supabase）: " . ($directResult['message'] ?? '不明なエラー');
+            $debug_message .= " | エラー詳細: " . ($directResult['message'] ?? '不明なエラー');
+        }
+    }
+
     // 予約数は未集計のため0で初期化
     foreach ($staff_list as $key => $s) {
         $staff_list[$key]['appointment_count'] = 0;
     }
-} else {
-    $error_message = "スタッフ一覧取得エラー（Supabase）: " . ($rpcStaff['message'] ?? '');
 }
 
 // ページタイトルとCSS
@@ -213,48 +268,31 @@ require_once 'includes/header.php';
                 </div>
             </div>
 
-            <!-- 成功/エラーメッセージ表示 -->
-            <?php if ($add_success): ?>
-                <div class="alert alert-success alert-dismissible fade show" role="alert">
-                    スタッフが正常に追加されました。
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
-                </div>
-            <?php endif; ?>
-            
-            <?php if ($edit_success): ?>
-                <div class="alert alert-success alert-dismissible fade show" role="alert">
-                    スタッフ情報が正常に更新されました。
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
-                </div>
-            <?php endif; ?>
-            
-            <?php if ($delete_success): ?>
-                <div class="alert alert-success alert-dismissible fade show" role="alert">
-                    スタッフが正常に削除されました。
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
-                </div>
-            <?php endif; ?>
-            
-            <?php if ($add_error): ?>
+            <!-- フラッシュメッセージの表示 -->
+            <?php displayFlashMessages(); ?>
+
+            <?php if (isset($error_message)): ?>
                 <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    スタッフの追加に失敗しました: <?php echo htmlspecialchars($add_error); ?>
+                    <?php echo htmlspecialchars($error_message); ?>
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
                 </div>
             <?php endif; ?>
-            
-            <?php if ($edit_error): ?>
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    スタッフの更新に失敗しました: <?php echo htmlspecialchars($edit_error); ?>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
+
+            <!-- デバッグ情報 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">デバッグ情報</h5>
                 </div>
-            <?php endif; ?>
-            
-            <?php if ($delete_error): ?>
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    スタッフの削除に失敗しました: <?php echo htmlspecialchars($delete_error); ?>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
+                <div class="card-body">
+                    <p><strong>現在のサロンID:</strong> <?php echo htmlspecialchars($salon_id ?? '未設定'); ?></p>
+                    <p><strong>現在のテナントID:</strong> <?php echo htmlspecialchars($tenant_id ?? '未設定'); ?></p>
+                    <?php if (isset($debug_message)): ?>
+                        <p><strong>デバッグメッセージ:</strong> <?php echo htmlspecialchars($debug_message); ?></p>
+                    <?php endif; ?>
+                    <p><strong>セッション情報:</strong></p>
+                    <pre><?php echo htmlspecialchars(json_encode($_SESSION, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); ?></pre>
                 </div>
-            <?php endif; ?>
+            </div>
 
             <!-- デバッグ情報 -->
             <?php if (isset($debug_message)): ?>
@@ -339,8 +377,14 @@ require_once 'includes/header.php';
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="9" class="text-center">スタッフが登録されていません。</td>
-                            </tr>
+                            <td colspan="9" class="text-center py-4">
+                                <div class="text-muted">
+                                    <i class="fas fa-user-slash fa-2x mb-3"></i><br>
+                                    このサロンに登録されているスタッフはいません<br>
+                                    <small class="text-muted">サロンID: <?php echo htmlspecialchars($salon_id); ?></small>
+                                </div>
+                            </td>
+                        </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -739,4 +783,4 @@ function renderServicesTable(services, staffServices) {
 }
 </script>
 
-<?php require_once 'includes/footer.php'; ?> 
+<?php require_once 'includes/footer.php'; ?>

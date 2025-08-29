@@ -1,9 +1,11 @@
 <?php
+require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/classes/Database.php';
 class AvailableSlot {
     private $db;
 
     public function __construct() {
-        $this->db = Database::getInstance()->getConnection();
+        $this->db = Database::getInstance();
     }
 
     /**
@@ -13,40 +15,53 @@ class AvailableSlot {
      * @return array 空き予約枠の配列
      */
     public function getAvailableSlots($salon_id, $filters = []) {
-        $where_conditions = ['salon_id = ?'];
-        $params = [$salon_id];
-
-        if (isset($filters['date'])) {
-            $where_conditions[] = 'date = ?';
-            $params[] = $filters['date'];
-        }
-
-        if (isset($filters['staff_id'])) {
-            $where_conditions[] = 'staff_id = ?';
-            $params[] = $filters['staff_id'];
-        }
-
-        $where_clause = implode(' AND ', $where_conditions);
-
-        $sql = "SELECT 
-                    as.slot_id,
-                    as.salon_id,
-                    as.staff_id,
-                    as.date,
-                    as.start_time,
-                    as.end_time,
-                    s.last_name as staff_last_name,
-                    s.first_name as staff_first_name
-                FROM available_slots as
-                LEFT JOIN staff s ON as.staff_id = s.staff_id
-                WHERE $where_clause
-                ORDER BY date ASC, start_time ASC";
-
         try {
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
+            // サロンからtenant_idを取得
+            $tenant = $this->db->fetchOne('salons', ['salon_id' => (int)$salon_id], 'tenant_id');
+            $tenantId = $tenant && isset($tenant['tenant_id']) ? (int)$tenant['tenant_id'] : null;
+
+            // RESTフィルタの組み立て
+            $restFilters = [
+                'salon_id' => (int)$salon_id,
+            ];
+            if (!empty($tenantId)) {
+                $restFilters['tenant_id'] = $tenantId;
+            }
+            if (isset($filters['date']) && $filters['date'] !== '') {
+                $restFilters['date'] = $filters['date'];
+            }
+            if (isset($filters['staff_id']) && $filters['staff_id'] !== '') {
+                $restFilters['staff_id'] = (int)$filters['staff_id'];
+            }
+
+            // 取得（ソート: date.asc, start_time.asc）
+            $slots = $this->db->fetchAll(
+                'available_slots',
+                $restFilters,
+                '*',
+                ['order' => 'date.asc, start_time.asc']
+            );
+
+            // スタッフ氏名の付加（N+1回避のためキャッシュ）
+            $staffCache = [];
+            foreach ($slots as &$slot) {
+                $sid = isset($slot['staff_id']) ? (int)$slot['staff_id'] : 0;
+                if ($sid > 0) {
+                    if (!isset($staffCache[$sid])) {
+                        $staff = $this->db->fetchOne('staff', ['staff_id' => $sid], 'first_name,last_name');
+                        $staffCache[$sid] = $staff ?: ['first_name' => null, 'last_name' => null];
+                    }
+                    $slot['staff_first_name'] = $staffCache[$sid]['first_name'] ?? null;
+                    $slot['staff_last_name'] = $staffCache[$sid]['last_name'] ?? null;
+                } else {
+                    $slot['staff_first_name'] = null;
+                    $slot['staff_last_name'] = null;
+                }
+            }
+            unset($slot);
+
+            return $slots;
+        } catch (Exception $e) {
             error_log('空き予約枠取得エラー: ' . $e->getMessage());
             throw new Exception('データベースエラーが発生しました');
         }
@@ -58,28 +73,28 @@ class AvailableSlot {
      * @return int 作成された予約枠のID
      */
     public function createAvailableSlot($data) {
-        $sql = "INSERT INTO available_slots (
-                    salon_id,
-                    staff_id,
-                    date,
-                    start_time,
-                    end_time,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, NOW(), NOW())";
-
         try {
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['salon_id'],
-                $data['staff_id'],
-                $data['date'],
-                $data['start_time'],
-                $data['end_time']
-            ]);
+            $tenant_id = null;
+            try { $tenant_id = getCurrentTenantId(); } catch (Exception $e) { /* ignore */ }
 
-            return $this->db->lastInsertId();
-        } catch (PDOException $e) {
+            $insertData = [
+                'salon_id' => (int)$data['salon_id'],
+                'tenant_id' => $tenant_id,
+                'staff_id' => (int)$data['staff_id'],
+                'date' => $data['date'],
+                'start_time' => $data['start_time'],
+                'end_time' => $data['end_time'],
+                'created_at' => date('c'),
+                'updated_at' => date('c'),
+            ];
+
+            $result = $this->db->insert('available_slots', $insertData);
+            // 返却は作成されたslot_id（representation返戻を想定）
+            if (is_array($result) && !empty($result)) {
+                return $result[0]['slot_id'] ?? 0;
+            }
+            return 0;
+        } catch (Exception $e) {
             error_log('空き予約枠作成エラー: ' . $e->getMessage());
             throw new Exception('データベースエラーが発生しました');
         }
@@ -91,12 +106,18 @@ class AvailableSlot {
      * @return bool 削除が成功したかどうか
      */
     public function deleteAvailableSlot($slot_id) {
-        $sql = "DELETE FROM available_slots WHERE slot_id = ?";
-
         try {
-            $stmt = $this->db->prepare($sql);
-            return $stmt->execute([$slot_id]);
-        } catch (PDOException $e) {
+            // テナント整合性チェック
+            $slot = $this->db->fetchOne('available_slots', ['slot_id' => (int)$slot_id], 'tenant_id');
+            $slotTenant = $slot['tenant_id'] ?? null;
+            $currentTenant = null;
+            try { $currentTenant = getCurrentTenantId(); } catch (Exception $e) { /* ignore */ }
+            if (!empty($currentTenant) && !empty($slotTenant) && (int)$slotTenant !== (int)$currentTenant) {
+                return false; // 他テナントのデータは削除不可
+            }
+
+            return $this->db->delete('available_slots', ['slot_id' => (int)$slot_id]);
+        } catch (Exception $e) {
             error_log('空き予約枠削除エラー: ' . $e->getMessage());
             throw new Exception('データベースエラーが発生しました');
         }
@@ -112,34 +133,34 @@ class AvailableSlot {
      * @return bool 重複があるかどうか
      */
     public function isTimeSlotOverlapping($salon_id, $staff_id, $date, $start_time, $end_time) {
-        $sql = "SELECT COUNT(*) FROM available_slots
-                WHERE salon_id = ? 
-                AND staff_id = ?
-                AND date = ?
-                AND (
-                    (start_time <= ? AND end_time > ?)
-                    OR
-                    (start_time < ? AND end_time >= ?)
-                    OR
-                    (start_time >= ? AND end_time <= ?)
-                )";
-
         try {
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $salon_id,
-                $staff_id,
-                $date,
-                $start_time,
-                $start_time,
-                $end_time,
-                $end_time,
-                $start_time,
-                $end_time
-            ]);
+            // サロンからtenant_idを取得
+            $tenant = $this->db->fetchOne('salons', ['salon_id' => (int)$salon_id], 'tenant_id');
+            $tenantId = $tenant && isset($tenant['tenant_id']) ? (int)$tenant['tenant_id'] : null;
 
-            return $stmt->fetchColumn() > 0;
-        } catch (PDOException $e) {
+            $filters = [
+                'salon_id' => (int)$salon_id,
+                'staff_id' => (int)$staff_id,
+                'date' => $date,
+            ];
+            if (!empty($tenantId)) {
+                $filters['tenant_id'] = $tenantId;
+            }
+
+            $slots = $this->db->fetchAll('available_slots', $filters, 'start_time,end_time');
+
+            $checkStart = strtotime($date . ' ' . $start_time);
+            $checkEnd = strtotime($date . ' ' . $end_time);
+            foreach ($slots as $slot) {
+                $slotStart = strtotime($date . ' ' . $slot['start_time']);
+                $slotEnd = strtotime($date . ' ' . $slot['end_time']);
+                // オーバーラップ条件: slotStart < checkEnd AND slotEnd > checkStart
+                if ($slotStart < $checkEnd && $slotEnd > $checkStart) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception $e) {
             error_log('予約枠重複チェックエラー: ' . $e->getMessage());
             throw new Exception('データベースエラーが発生しました');
         }
@@ -151,15 +172,18 @@ class AvailableSlot {
      * @return array|false 予約枠データ
      */
     public function getSlotById($slot_id) {
-        $sql = "SELECT * FROM available_slots WHERE slot_id = ?";
-
         try {
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$slot_id]);
-            return $stmt->fetch(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
+            $tenantId = null;
+            try { $tenantId = getCurrentTenantId(); } catch (Exception $e) { /* ignore */ }
+
+            $filters = ['slot_id' => (int)$slot_id];
+            if (!empty($tenantId)) { $filters['tenant_id'] = (int)$tenantId; }
+
+            $row = $this->db->fetchOne('available_slots', $filters, '*');
+            return $row ?: false;
+        } catch (Exception $e) {
             error_log('予約枠取得エラー: ' . $e->getMessage());
             throw new Exception('データベースエラーが発生しました');
         }
     }
-} 
+}

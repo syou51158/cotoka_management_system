@@ -114,10 +114,25 @@ include 'includes/header.php';
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="閉じる"></button>
             </div>
             <?php endif; ?>
-            <div class="text-end mb-4">
+            <div class="text-end mb-4 d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTenantModal">
                     <i class="fas fa-plus me-1"></i> 新規テナント追加
                 </button>
+                <form method="post" action="tenant-management.php" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                    <input type="hidden" name="action" value="add_tenant">
+                    <input type="hidden" name="company_name" value="Sample Co <?= date('YmdHis') ?>">
+                    <input type="hidden" name="owner_name" value="Sample Owner">
+                    <input type="hidden" name="email" value="sample<?= date('YmdHis') ?>@example.com">
+                    <input type="hidden" name="phone" value="">
+                    <input type="hidden" name="subscription_plan" value="free">
+                    <input type="hidden" name="max_salons" value="3">
+                    <input type="hidden" name="max_users" value="5">
+                    <input type="hidden" name="max_storage_mb" value="500">
+                    <button type="submit" class="btn btn-outline-secondary">
+                        <i class="fas fa-magic me-1"></i> サンプルテナント作成
+                    </button>
+                </form>
             </div>
             <!-- 分数表示の説明 -->
             <div class="alert alert-info d-flex align-items-start" role="alert">

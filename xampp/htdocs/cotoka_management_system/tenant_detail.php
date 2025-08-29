@@ -41,6 +41,55 @@ if (!$tenant) {
     redirect('tenant-management.php');
 }
 
+// 追加: CSRFトークン生成
+$csrf_token = generateCSRFToken();
+
+// 追加: サロン追加のPOST処理
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['action'] ?? '') === 'add_salon')) {
+    // CSRF検証
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlashMessage('error', 'セキュリティトークンが無効です。');
+        redirect('tenant_detail.php?id=' . urlencode($tenant['tenant_id']));
+    }
+
+    // 入力値の取得・検証
+    $salon_name = trim($_POST['salon_name'] ?? '');
+    $address = trim($_POST['address'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $status = trim($_POST['status'] ?? 'active');
+
+    if ($salon_name === '') {
+        setFlashMessage('error', 'サロン名は必須です。');
+        redirect('tenant_detail.php?id=' . urlencode($tenant['tenant_id']));
+    }
+
+    // リソース上限チェック（サロン数）
+    if (!$tenantObj->checkResourceLimit($tenant['tenant_id'], 'salons')) {
+        setFlashMessage('error', 'サロンの上限数に達しています。プランの見直しをご検討ください。');
+        redirect('tenant_detail.php?id=' . urlencode($tenant['tenant_id']));
+    }
+
+    try {
+        // ローカルDBへ挿入（サロン作成）
+        $sql = "INSERT INTO salons (tenant_id, name, address, phone, email, status) VALUES (?, ?, ?, ?, ?, ?)";
+        $db->query($sql, [
+            $tenant['tenant_id'],
+            $salon_name,
+            ($address !== '' ? $address : null),
+            ($phone !== '' ? $phone : null),
+            ($email !== '' ? $email : null),
+            ($status !== '' ? $status : 'active')
+        ]);
+
+        setFlashMessage('success', 'サロンを追加しました。');
+    } catch (Exception $e) {
+        setFlashMessage('error', 'サロンの追加に失敗しました: ' . $e->getMessage());
+    }
+
+    redirect('tenant_detail.php?id=' . urlencode($tenant['tenant_id']));
+}
+
 // テナント営業時間設定の取得
 $sql = "SELECT setting_value FROM tenant_settings 
         WHERE tenant_id = ? AND setting_key = 'business_hours'";
@@ -327,9 +376,10 @@ $statusColors = [
                     <?php endif; ?>
                     
                     <div class="mt-3">
-                        <a href="#" class="btn btn-primary">
+                        <!-- 変更: モーダル起動ボタンに置換 -->
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSalonModal">
                             <i class="fas fa-plus"></i> サロンを追加
-                        </a>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -403,6 +453,53 @@ $statusColors = [
             </div>
         </div>
     </div>
+</div>
+
+<!-- 追加: サロン追加モーダル -->
+<div class="modal fade" id="addSalonModal" tabindex="-1" aria-labelledby="addSalonModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addSalonModalLabel">サロンを追加</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+      </div>
+      <form method="post" action="tenant_detail.php?id=<?php echo urlencode($tenant['tenant_id']); ?>">
+        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+        <input type="hidden" name="action" value="add_salon">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">サロン名 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="salon_name" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">ステータス</label>
+              <select class="form-select" name="status">
+                <option value="active" selected>active</option>
+                <option value="inactive">inactive</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">住所</label>
+              <input type="text" class="form-control" name="address">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">電話</label>
+              <input type="text" class="form-control" name="phone">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">メール</label>
+              <input type="email" class="form-control" name="email">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">追加する</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- フッターを含める -->

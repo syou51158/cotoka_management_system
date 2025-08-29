@@ -2,6 +2,7 @@
 // 必要なファイルを読み込み
 require_once '../config/config.php';
 require_once '../classes/Database.php';
+require_once '../includes/functions.php';
 
 // タイムゾーンを明示的に設定
 date_default_timezone_set('Asia/Tokyo');
@@ -80,18 +81,20 @@ try {
     
     // 日付の曜日を取得（0:日曜日 - 6:土曜日）
     $day_of_week = date('w', strtotime($date));
+
+    // テナントIDを取得（セッション→サロンから導出）
+    $tenant_id = getCurrentTenantId();
+    if (!$tenant_id && $salon_id) {
+        $tmp = $conn->prepare('SELECT tenant_id FROM salons WHERE salon_id = :salon_id');
+        $tmp->bindParam(':salon_id', $salon_id);
+        $tmp->execute();
+        $tenant_id = $tmp->fetchColumn();
+    }
     
     // サロンの営業時間をチェック
-    $stmt = $conn->prepare("
-        SELECT 
-            open_time,
-            close_time,
-            is_closed
-        FROM salon_business_hours
-        WHERE salon_id = :salon_id
-        AND day_of_week = :day_of_week
-    ");
+    $stmt = $conn->prepare("\n        SELECT \n            open_time,\n            close_time,\n            is_closed\n        FROM salon_business_hours\n        WHERE salon_id = :salon_id\n        AND tenant_id = :tenant_id\n        AND day_of_week = :day_of_week\n    ");
     $stmt->bindParam(':salon_id', $salon_id);
+    $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
     $stmt->bindParam(':day_of_week', $day_of_week);
     $stmt->execute();
     $business_hours = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -109,17 +112,10 @@ try {
     if ($staff_id !== '0') {
         // スタッフのシフト情報を取得
         $stmt = $conn->prepare("
-            SELECT 
-                start_time,
-                end_time
-            FROM staff_shifts
-            WHERE staff_id = :staff_id
-            AND salon_id = :salon_id
-            AND shift_date = :shift_date
-            AND status = 'active'
-        ");
+            SELECT \n                start_time,\n                end_time\n            FROM staff_shifts\n            WHERE staff_id = :staff_id\n            AND salon_id = :salon_id\n            AND tenant_id = :tenant_id\n            AND shift_date = :shift_date\n            AND status = 'active'\n        ");
         $stmt->bindParam(':staff_id', $staff_id);
         $stmt->bindParam(':salon_id', $salon_id);
+        $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
         $stmt->bindParam(':shift_date', $date);
         $stmt->execute();
         $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -174,17 +170,10 @@ try {
         
         // 予約済みの時間枠を取得
         $stmt = $conn->prepare("
-            SELECT 
-                start_time,
-                end_time
-            FROM appointments
-            WHERE staff_id = :staff_id
-            AND salon_id = :salon_id
-            AND appointment_date = :appointment_date
-            AND status NOT IN ('cancelled', 'no-show')
-        ");
+            SELECT \n                start_time,\n                end_time\n            FROM appointments\n            WHERE staff_id = :staff_id\n            AND salon_id = :salon_id\n            AND tenant_id = :tenant_id\n            AND appointment_date = :appointment_date\n            AND status NOT IN ('cancelled', 'no-show')\n        ");
         $stmt->bindParam(':staff_id', $staff_id);
         $stmt->bindParam(':salon_id', $salon_id);
+        $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
         $stmt->bindParam(':appointment_date', $date);
         $stmt->execute();
         $booked_appointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -239,11 +228,14 @@ try {
             FROM staff s
             JOIN staff_services ss ON s.staff_id = ss.staff_id
             WHERE s.salon_id = :salon_id
+            AND s.tenant_id = :tenant_id
             AND s.status = 'active'
             AND ss.service_id IN (" . implode(',', array_column($services, 'service_id')) . ")
             AND ss.is_active = 1
+            AND ss.tenant_id = :tenant_id
         ");
         $stmt->bindParam(':salon_id', $salon_id);
+        $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
         $stmt->execute();
         $service_staff = $stmt->fetchAll(PDO::FETCH_COLUMN);
         
@@ -269,6 +261,7 @@ try {
                     FROM staff_shifts
                     WHERE staff_id = :staff_id
                     AND salon_id = :salon_id
+                    AND tenant_id = :tenant_id
                     AND shift_date = :shift_date
                     AND status = 'active'
                     AND start_time <= :time_slot
@@ -276,6 +269,7 @@ try {
                 ");
                 $stmt->bindParam(':staff_id', $staff_id);
                 $stmt->bindParam(':salon_id', $salon_id);
+                $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
                 $stmt->bindParam(':shift_date', $date);
                 $stmt->bindParam(':time_slot', $time_slot);
                 $stmt->bindParam(':end_time', $end_time);
@@ -292,6 +286,7 @@ try {
                     FROM appointments
                     WHERE staff_id = :staff_id
                     AND salon_id = :salon_id
+                    AND tenant_id = :tenant_id
                     AND appointment_date = :appointment_date
                     AND status NOT IN ('cancelled', 'no-show')
                     AND (
@@ -302,6 +297,7 @@ try {
                 ");
                 $stmt->bindParam(':staff_id', $staff_id);
                 $stmt->bindParam(':salon_id', $salon_id);
+                $stmt->bindParam(':tenant_id', $tenant_id, PDO::PARAM_INT);
                 $stmt->bindParam(':appointment_date', $date);
                 $stmt->bindParam(':time_slot', $time_slot);
                 $stmt->bindParam(':end_time', $end_time);
@@ -338,4 +334,4 @@ try {
     header('Content-Type: application/json');
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
     exit;
-} 
+}

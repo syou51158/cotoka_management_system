@@ -1,33 +1,19 @@
 <?php
-// データベース接続テスト専用スクリプト
+// Supabaseデータベース接続テスト専用スクリプト
 
 // エラー表示を最大限に有効化
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-echo "<h1>データベース接続診断</h1>";
+echo "<h1>Supabaseデータベース接続診断</h1>";
 
-// MySQLサーバーが起動しているか確認
-echo "<h2>1. MySQLサーバー状態確認</h2>";
-$mysql_running = false;
-
-if (function_exists('exec')) {
-    // Windowsでのプロセス確認
-    exec('tasklist /FI "IMAGENAME eq mysqld.exe" /FO LIST', $output, $return_var);
-    if (isset($output[0]) && strpos($output[0], 'mysqld.exe') !== false) {
-        echo "<p style='color:green'>✓ MySQLサーバー(mysqld.exe)は実行中です</p>";
-        $mysql_running = true;
-    } else {
-        echo "<p style='color:red'>✗ MySQLサーバー(mysqld.exe)が実行されていません</p>";
-        echo "<p>XAMPPコントロールパネルからMySQLを起動してください</p>";
-    }
-} else {
-    echo "<p style='color:orange'>⚠ サーバー状態を確認できません (exec関数が無効)</p>";
-}
+// Supabase接続確認
+echo "<h2>1. Supabase接続状態確認</h2>";
+echo "<p style='color:blue'>ℹ Supabaseはクラウドサービスのため、インターネット接続が必要です</p>";
 
 // 設定ファイルの内容を確認
-echo "<h2>2. データベース設定確認</h2>";
+echo "<h2>2. Supabaseデータベース設定確認</h2>";
 
 // config.phpファイルの存在確認
 $config_file = __DIR__ . '/config/config.php';
@@ -46,76 +32,65 @@ if (file_exists($config_file)) {
     echo "<p style='color:red'>✗ 設定ファイルが見つかりません: {$config_file}</p>";
 }
 
-// データベース接続テスト
-echo "<h2>3. データベース接続テスト</h2>";
+// Supabaseデータベース接続テスト
+echo "<h2>3. Supabaseデータベース接続テスト</h2>";
 
 try {
-    // PDOを使用して直接接続
-    $dsn = "mysql:host=" . DB_HOST . ";charset=" . DB_CHARSET;
-    $options = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ];
+    require_once 'classes/Database.php';
     
-    echo "<p>MySQLサーバーへの接続を試みています...</p>";
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-    echo "<p style='color:green'>✓ MySQLサーバーへの接続に成功しました</p>";
+    echo "<p>Supabaseデータベースへの接続を試みています...</p>";
+    $database = new Database();
+    $pdo = $database->getConnection();
+    echo "<p style='color:green'>✓ Supabaseデータベースへの接続に成功しました</p>";
     
-    // データベースの存在確認
-    $stmt = $pdo->query("SHOW DATABASES LIKE '" . DB_NAME . "';");
-    $database_exists = $stmt->rowCount() > 0;
+    // スキーマの存在確認
+    $stmt = $pdo->query("SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'cotoka'");
+    $schema_exists = $stmt->rowCount() > 0;
     
-    if ($database_exists) {
-        echo "<p style='color:green'>✓ データベース '" . DB_NAME . "' は存在します</p>";
-        
-        // データベースを選択
-        $pdo->exec("USE " . DB_NAME);
-        echo "<p style='color:green'>✓ データベース '" . DB_NAME . "' を選択しました</p>";
+    if ($schema_exists) {
+        echo "<p style='color:green'>✓ スキーマ 'cotoka' は存在します</p>";
         
         // テーブル一覧を取得
-        $stmt = $pdo->query("SHOW TABLES");
+        $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'cotoka' ORDER BY table_name");
         $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
         
         if (count($tables) > 0) {
-            echo "<p style='color:green'>✓ データベース内に " . count($tables) . " 個のテーブルが存在します</p>";
+            echo "<p style='color:green'>✓ cotoka スキーマ内に " . count($tables) . " 個のテーブルが存在します</p>";
             echo "<ul>";
             foreach ($tables as $table) {
                 echo "<li>" . htmlspecialchars($table) . "</li>";
             }
             echo "</ul>";
         } else {
-            echo "<p style='color:red'>✗ データベース内にテーブルが存在しません</p>";
-            echo "<p>データベーススキーマをインポートする必要があります。README.mdの手順に従ってください。</p>";
+            echo "<p style='color:red'>✗ cotoka スキーマ内にテーブルが存在しません</p>";
+            echo "<p>Supabaseマイグレーションを実行する必要があります。</p>";
         }
     } else {
-        echo "<p style='color:red'>✗ データベース '" . DB_NAME . "' が存在しません</p>";
-        echo "<p>データベースを作成する必要があります。README.mdの手順に従ってください。</p>";
+        echo "<p style='color:red'>✗ スキーマ 'cotoka' が存在しません</p>";
+        echo "<p>Supabaseでスキーマを作成する必要があります。</p>";
     }
     
 } catch (PDOException $e) {
-    echo "<p style='color:red'>✗ データベース接続エラー: " . htmlspecialchars($e->getMessage()) . "</p>";
+    echo "<p style='color:red'>✗ Supabaseデータベース接続エラー: " . htmlspecialchars($e->getMessage()) . "</p>";
     
-    // エラーの種類に応じたヒントを表示
-    if (strpos($e->getMessage(), "Unknown database") !== false) {
-        echo "<p>データベース '" . DB_NAME . "' が存在しません。データベースを作成してください。</p>";
-        echo "<p>XAMPPのphpMyAdminで新しいデータベースを作成するか、以下のSQLコマンドを実行してください:</p>";
-        echo "<pre>CREATE DATABASE " . DB_NAME . " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;</pre>";
-    } elseif (strpos($e->getMessage(), "Access denied") !== false) {
-        echo "<p>データベースユーザー名またはパスワードが正しくありません。config.phpの設定を確認してください。</p>";
-    } elseif (strpos($e->getMessage(), "Connection refused") !== false) {
-        echo "<p>MySQLサーバーに接続できません。XAMPPコントロールパネルでMySQLが起動しているか確認してください。</p>";
+    // エラーの種類に応じた解決策を提案
+    if (strpos($e->getMessage(), "could not connect to server") !== false) {
+        echo "<p>Supabaseサーバーに接続できません。インターネット接続とconfig.phpの設定を確認してください。</p>";
+    } elseif (strpos($e->getMessage(), "authentication failed") !== false) {
+        echo "<p>Supabaseの認証に失敗しました。config.phpのデータベース設定を確認してください。</p>";
+    } elseif (strpos($e->getMessage(), "database") !== false && strpos($e->getMessage(), "does not exist") !== false) {
+        echo "<p>Supabaseプロジェクトまたはデータベースが見つかりません。config.phpの設定を確認してください。</p>";
     }
 }
 
 // 解決策の提案
-echo "<h2>4. 問題解決のためのステップ</h2>";
+echo "<h2>4. Supabase接続の問題解決ステップ</h2>";
 echo "<ol>";
-echo "<li>XAMPPコントロールパネルを開き、Apache と MySQL が実行中であることを確認してください。</li>";
-echo "<li>データベース '" . DB_NAME . "' が存在しない場合は、phpMyAdminで作成してください。</li>";
-echo "<li>データベーススキーマをインポートしてください。<code>database/db_schema.sql</code> ファイルを使用します。</li>";
-echo "<li>config.phpのデータベース設定が正しいことを確認してください。</li>";
+echo "<li>インターネット接続が正常であることを確認してください。</li>";
+echo "<li>config.phpのSupabase設定（ホスト、ポート、データベース名、ユーザー名、パスワード）が正しいことを確認してください。</li>";
+echo "<li>Supabaseプロジェクトが正常に動作していることを確認してください。</li>";
+echo "<li>必要に応じて、test_supabase_connection.phpでより詳細なテストを実行してください。</li>";
 echo "</ol>";
 
-echo "<p><a href='test_db.php'>標準のデータベーステストページに移動</a></p>";
+echo "<p><a href='test_supabase_connection.php'>Supabase接続テストページに移動</a></p>";
 ?>

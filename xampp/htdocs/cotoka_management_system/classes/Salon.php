@@ -24,16 +24,11 @@ class Salon
      */
     public function getAll($activeOnly = true)
     {
-        $sql = "SELECT * FROM salons";
-        $params = [];
-        
+        $filters = [];
         if ($activeOnly) {
-            $sql .= " WHERE status = 'active'";
+            $filters['status'] = 'active';
         }
-        
-        $sql .= " ORDER BY name ASC";
-        
-        return $this->db->fetchAll($sql, $params);
+        return $this->db->fetchAll('salons', $filters, '*', ['order' => 'name.asc']);
     }
     
     /**
@@ -44,33 +39,36 @@ class Salon
      */
     public function getById($salonId)
     {
-        $sql = "SELECT * FROM salons WHERE salon_id = ?";
-        return $this->db->fetchOne($sql, [$salonId]);
+        return $this->db->fetchOne('salons', ['salon_id' => $salonId]);
     }
     
     /**
      * サロンを追加
      * 
      * @param array $data サロンデータ
-     * @return int 新しいサロンのID
+     * @return int 新しいサロンのID（取得できない場合は0）
      */
     public function add($data)
     {
-        $sql = "INSERT INTO salons (name, address, phone, email, business_hours, description, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)";
-        
-        $params = [
-            $data['name'],
-            $data['address'] ?? null,
-            $data['phone'] ?? null,
-            $data['email'] ?? null,
-            $data['business_hours'] ?? null,
-            $data['description'] ?? null,
-            $data['status'] ?? 'active'
+        $insertData = [
+            'name' => $data['name'],
+            'address' => $data['address'] ?? null,
+            'phone' => $data['phone'] ?? null,
+            'email' => $data['email'] ?? null,
+            'business_hours' => $data['business_hours'] ?? null,
+            'description' => $data['description'] ?? null,
+            'status' => $data['status'] ?? 'active'
         ];
-        
-        $this->db->query($sql, $params);
-        return $this->db->lastInsertId();
+        // 可能ならテナントIDを自動付与
+        if (!isset($insertData['tenant_id']) && function_exists('getCurrentTenantId')) {
+            $insertData['tenant_id'] = getCurrentTenantId();
+        }
+        $result = $this->db->insert('salons', $insertData);
+        if (is_array($result) && !empty($result[0])) {
+            if (isset($result[0]['salon_id'])) return (int)$result[0]['salon_id'];
+            if (isset($result[0]['id'])) return (int)$result[0]['id'];
+        }
+        return 0;
     }
     
     /**
@@ -82,24 +80,17 @@ class Salon
      */
     public function update($salonId, $data)
     {
-        $sql = "UPDATE salons 
-                SET name = ?, address = ?, phone = ?, email = ?, 
-                    business_hours = ?, description = ?, status = ? 
-                WHERE salon_id = ?";
-        
-        $params = [
-            $data['name'],
-            $data['address'] ?? null,
-            $data['phone'] ?? null,
-            $data['email'] ?? null,
-            $data['business_hours'] ?? null,
-            $data['description'] ?? null,
-            $data['status'] ?? 'active',
-            $salonId
-        ];
-        
-        $this->db->query($sql, $params);
-        return true;
+        $fields = ['name','address','phone','email','business_hours','description','status'];
+        $updateData = [];
+        foreach ($fields as $f) {
+            if (array_key_exists($f, $data)) {
+                $updateData[$f] = $data[$f];
+            }
+        }
+        if (empty($updateData)) {
+            return true; // 更新項目なし
+        }
+        return $this->db->update('salons', $updateData, ['salon_id' => $salonId]);
     }
     
     /**
@@ -111,9 +102,7 @@ class Salon
      */
     public function updateStatus($salonId, $status)
     {
-        $sql = "UPDATE salons SET status = ? WHERE salon_id = ?";
-        $this->db->query($sql, [$status, $salonId]);
-        return true;
+        return $this->db->update('salons', ['status' => $status], ['salon_id' => $salonId]);
     }
     
     /**
@@ -136,19 +125,19 @@ class Salon
      */
     public function getSalonsByUserId($userId, $activeOnly = true)
     {
-        $sql = "SELECT s.* FROM salons s
-                JOIN user_salons us ON s.salon_id = us.salon_id
-                WHERE us.user_id = ?";
-                
-        $params = [$userId];
-        
-        if ($activeOnly) {
-            $sql .= " AND s.status = 'active'";
+        $links = $this->db->fetchAll('user_salons', ['user_id' => $userId]);
+        $salons = [];
+        foreach ($links as $link) {
+            $filters = ['salon_id' => $link['salon_id']];
+            if ($activeOnly) { $filters['status'] = 'active'; }
+            $salon = $this->db->fetchOne('salons', $filters);
+            if ($salon) { $salons[] = $salon; }
         }
-        
-        $sql .= " ORDER BY s.name ASC";
-        
-        return $this->db->fetchAll($sql, $params);
+        // 名前順でソート
+        usort($salons, function($a, $b) {
+            return strcmp($a['name'] ?? '', $b['name'] ?? '');
+        });
+        return $salons;
     }
     
     /**
@@ -160,11 +149,10 @@ class Salon
      */
     public function canUserAccessSalon($userId, $salonId)
     {
-        // 通常の権限チェック
-        $sql = "SELECT 1 FROM user_salons 
-                WHERE user_id = ? AND salon_id = ?";
-        
-        $result = $this->db->fetchOne($sql, [$userId, $salonId]);
+        $result = $this->db->fetchOne('user_salons', [
+            'user_id' => $userId,
+            'salon_id' => $salonId
+        ]);
         return !empty($result);
     }
     
@@ -177,11 +165,11 @@ class Salon
      */
     public function getUserRoleInSalon($userId, $salonId)
     {
-        $sql = "SELECT role FROM user_salons 
-                WHERE user_id = ? AND salon_id = ?";
-        
-        $result = $this->db->fetchOne($sql, [$userId, $salonId]);
-        return $result ? $result['role'] : null;
+        $result = $this->db->fetchOne('user_salons', [
+            'user_id' => $userId,
+            'salon_id' => $salonId
+        ]);
+        return $result ? ($result['role'] ?? null) : null;
     }
     
     /**
@@ -194,20 +182,26 @@ class Salon
      */
     public function assignUserToSalon($userId, $salonId, $role = 'staff')
     {
-        // 既存の関連をチェック
-        $existing = $this->db->fetchOne(
-            "SELECT 1 FROM user_salons WHERE user_id = ? AND salon_id = ?", 
-            [$userId, $salonId]
-        );
+        $existing = $this->db->fetchOne('user_salons', [
+            'user_id' => $userId,
+            'salon_id' => $salonId
+        ]);
         
         if ($existing) {
-            // 既存の関連を更新
-            $sql = "UPDATE user_salons SET role = ? WHERE user_id = ? AND salon_id = ?";
-            $this->db->query($sql, [$role, $userId, $salonId]);
+            $this->db->update('user_salons', ['role' => $role], [
+                'user_id' => $userId,
+                'salon_id' => $salonId
+            ]);
         } else {
-            // 新しい関連を作成
-            $sql = "INSERT INTO user_salons (user_id, salon_id, role) VALUES (?, ?, ?)";
-            $this->db->query($sql, [$userId, $salonId, $role]);
+            $insert = [
+                'user_id' => $userId,
+                'salon_id' => $salonId,
+                'role' => $role
+            ];
+            if (function_exists('getCurrentTenantId')) {
+                $insert['tenant_id'] = getCurrentTenantId();
+            }
+            $this->db->insert('user_salons', $insert);
         }
         
         return true;
@@ -222,9 +216,10 @@ class Salon
      */
     public function removeUserFromSalon($userId, $salonId)
     {
-        $sql = "DELETE FROM user_salons WHERE user_id = ? AND salon_id = ?";
-        $this->db->query($sql, [$userId, $salonId]);
-        return true;
+        return $this->db->delete('user_salons', [
+            'user_id' => $userId,
+            'salon_id' => $salonId
+        ]);
     }
     
     /**
@@ -235,8 +230,10 @@ class Salon
      */
     public function getFirstByTenantId($tenantId)
     {
-        $sql = "SELECT * FROM salons WHERE tenant_id = ? ORDER BY salon_id ASC LIMIT 1";
-        return $this->db->fetchOne($sql, [$tenantId]);
+        return $this->db->fetchOne('salons', ['tenant_id' => $tenantId], '*', [
+            'order' => 'salon_id.asc',
+            'limit' => 1
+        ]);
     }
     
     /**
@@ -265,15 +262,8 @@ class Salon
      */
     public function getSalonsByTenantId($tenantId, $activeOnly = true)
     {
-        $sql = "SELECT * FROM salons WHERE tenant_id = ?";
-        $params = [$tenantId];
-        
-        if ($activeOnly) {
-            $sql .= " AND status = 'active'";
-        }
-        
-        $sql .= " ORDER BY name ASC";
-        
-        return $this->db->fetchAll($sql, $params);
+        $filters = ['tenant_id' => $tenantId];
+        if ($activeOnly) { $filters['status'] = 'active'; }
+        return $this->db->fetchAll('salons', $filters, '*', ['order' => 'name.asc']);
     }
-} 
+}

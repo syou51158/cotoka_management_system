@@ -25,11 +25,9 @@ class User
      */
     public function authenticate($email, $password)
     {
-        $sql = "SELECT * FROM users WHERE email = ? AND status = 'active'";
-        $user = $this->db->fetchOne($sql, [$email]);
+        $user = $this->db->fetchOne('users', ['email' => $email, 'status' => 'active']);
         
         if ($user && password_verify($password, $user['password'])) {
-            // パスワードハッシュをデータベースに保存しない
             unset($user['password']);
             return $user;
         }
@@ -47,21 +45,11 @@ class User
      */
     public function login($identifier, $password, $rememberMe = false) {
         try {
-            // メールアドレスまたはユーザーIDでユーザーを検索
-            $sql = "SELECT u.*, r.role_name 
-                   FROM users u 
-                   LEFT JOIN roles r ON u.role_id = r.role_id 
-                   WHERE (u.email = ? OR u.user_id = ?) AND u.status = 'active' 
-                   LIMIT 1";
-            $params = [$identifier, $identifier];
-            
-            // デバッグ情報
-            error_log('Login SQL: ' . $sql);
-            error_log('Login Parameters: ' . json_encode($params, JSON_UNESCAPED_UNICODE));
-            
-            $user = $this->db->fetchOne($sql, $params);
-            
-            error_log('ユーザー情報: ' . json_encode($user, JSON_UNESCAPED_UNICODE));
+            // 1) email で検索、なければ user_id で検索
+            $user = $this->db->fetchOne('users', ['email' => $identifier, 'status' => 'active']);
+            if (!$user) {
+                $user = $this->db->fetchOne('users', ['user_id' => $identifier, 'status' => 'active']);
+            }
             
             if (!$user) {
                 error_log('ユーザーが見つかりません: ' . $identifier);
@@ -73,30 +61,31 @@ class User
                 return false;
             }
             
+            // ロール名を取得
+            $roleName = null;
+            if (!empty($user['role_id'])) {
+                $role = $this->db->fetchOne('roles', ['role_id' => $user['role_id']], 'role_name');
+                $roleName = $role ? $role['role_name'] : null;
+            }
+            
             // セッションにユーザー情報を保存
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['user_unique_id'] = $user['user_id'];
-            $_SESSION['role_id'] = $user['role_id'];
-            $_SESSION['role_name'] = $user['role_name'];
-            $_SESSION['user_name'] = $user['name'];
+            $_SESSION['role_id'] = $user['role_id'] ?? null;
+            $_SESSION['role_name'] = $roleName;
+            $_SESSION['user_name'] = $user['name'] ?? '';
             
             // テナントIDを設定（存在し、全体管理者でない場合）
-            if (isset($user['tenant_id']) && $user['role_name'] !== 'admin') {
+            if (isset($user['tenant_id']) && $roleName !== 'admin') {
                 $_SESSION['tenant_id'] = $user['tenant_id'];
-                
-                // テナント情報を取得
-                $sql = "SELECT * FROM tenants WHERE tenant_id = ?";
-                $tenant = $this->db->fetchOne($sql, [$user['tenant_id']]);
-                
+                $tenant = $this->db->fetchOne('tenants', ['tenant_id' => $user['tenant_id']]);
                 if ($tenant) {
-                    $_SESSION['tenant_name'] = $tenant['company_name'];
+                    $_SESSION['tenant_name'] = $tenant['company_name'] ?? '';
                 }
             }
             
-            // アクセス可能なサロンのリストを取得（役割に基づいて）
-            $_SESSION['accessible_salons'] = $this->getAccessibleSalonIds($user['id'], $user['role_name'], $user['tenant_id'] ?? null);
-            
-            error_log('ログイン成功。セッション情報: ' . json_encode($_SESSION, JSON_UNESCAPED_UNICODE));
+            // アクセス可能なサロンのIDリストをセッションに保存
+            $_SESSION['accessible_salons'] = $this->getAccessibleSalonIds($user['id'], $roleName, $user['tenant_id'] ?? null);
             
             // Remember Me機能
             if ($rememberMe) {
@@ -104,27 +93,23 @@ class User
                 $tokenHash = hash('sha256', $tokenPlain);
                 $expires = date('Y-m-d H:i:s', strtotime('+30 days'));
 
-                // remember_tokens の列存在チェック
                 $hasTokenHash = $this->rememberTokensHasColumn('token_hash');
 
                 if ($hasTokenHash) {
-                    $sql = "INSERT INTO remember_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)";
-                    $this->db->query($sql, [
-                        $user['user_id'],
-                        $tokenHash,
-                        $expires
+                    $this->db->insert('remember_tokens', [
+                        'user_id' => $user['user_id'],
+                        'token_hash' => $tokenHash,
+                        'expires_at' => $expires
                     ]);
                 } else {
                     // 旧スキーマ互換: token 列にハッシュを保存（平文は保存しない）
-                    $sql = "INSERT INTO remember_tokens (user_id, token, expires_at) VALUES (?, ?, ?)";
-                    $this->db->query($sql, [
-                        $user['user_id'],
-                        $tokenHash,
-                        $expires
+                    $this->db->insert('remember_tokens', [
+                        'user_id' => $user['user_id'],
+                        'token' => $tokenHash,
+                        'expires_at' => $expires
                     ]);
                 }
 
-                // Cookieを設定（HTTPS環境のみsecure、それ以外はfalse）
                 $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
                 setcookie('remember_token', $tokenPlain, strtotime('+30 days'), '/', '', $secure, true);
             }
@@ -149,66 +134,52 @@ class User
     public function autoLoginByToken($tokenPlain)
     {
         try {
-            if (empty($tokenPlain)) {
-                return false;
-            }
+            if (empty($tokenPlain)) { return false; }
 
             $tokenHash = hash('sha256', $tokenPlain);
 
-            // remember_tokens の列存在を確認
             $hasTokenHash = $this->rememberTokensHasColumn('token_hash');
 
             $record = null;
             if ($hasTokenHash) {
-                $sql = "SELECT user_id, expires_at FROM remember_tokens WHERE token_hash = ? LIMIT 1";
-                $record = $this->db->fetchOne($sql, [$tokenHash]);
+                $record = $this->db->fetchOne('remember_tokens', ['token_hash' => $tokenHash], 'user_id,expires_at');
             } else {
                 // まずハッシュで照合（ハッシュ保存へ移行後の互換）
-                $sql = "SELECT user_id, expires_at FROM remember_tokens WHERE token = ? LIMIT 1";
-                $record = $this->db->fetchOne($sql, [$tokenHash]);
-
-                // 見つからなければ旧方式（平文保存）も試す（移行用）
+                $record = $this->db->fetchOne('remember_tokens', ['token' => $tokenHash], 'user_id,expires_at');
                 if (!$record) {
-                    $record = $this->db->fetchOne($sql, [$tokenPlain]);
+                    // 旧方式（平文）
+                    $record = $this->db->fetchOne('remember_tokens', ['token' => $tokenPlain], 'user_id,expires_at');
                 }
             }
 
-            if (!$record) {
-                return false;
-            }
+            if (!$record) { return false; }
 
-            // 期限チェック
-            if (strtotime($record['expires_at']) < time()) {
-                return false;
-            }
+            if (strtotime($record['expires_at']) < time()) { return false; }
 
             // ユーザー取得（user_id は users.user_id と対応）
-            $userSql = "SELECT u.*, r.role_name 
-                        FROM users u 
-                        LEFT JOIN roles r ON u.role_id = r.role_id 
-                        WHERE u.user_id = ? AND u.status = 'active' 
-                        LIMIT 1";
-            $user = $this->db->fetchOne($userSql, [$record['user_id']]);
-            if (!$user) {
-                return false;
+            $user = $this->db->fetchOne('users', ['user_id' => $record['user_id'], 'status' => 'active']);
+            if (!$user) { return false; }
+
+            $roleName = null;
+            if (!empty($user['role_id'])) {
+                $role = $this->db->fetchOne('roles', ['role_id' => $user['role_id']], 'role_name');
+                $roleName = $role ? $role['role_name'] : null;
             }
 
             // セッションにユーザー情報を保存
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['user_unique_id'] = $user['user_id'];
-            $_SESSION['role_id'] = $user['role_id'];
-            $_SESSION['role_name'] = $user['role_name'];
-            $_SESSION['user_name'] = $user['name'];
+            $_SESSION['role_id'] = $user['role_id'] ?? null;
+            $_SESSION['role_name'] = $roleName;
+            $_SESSION['user_name'] = $user['name'] ?? '';
 
-            if (isset($user['tenant_id']) && $user['role_name'] !== 'admin') {
+            if (isset($user['tenant_id']) && $roleName !== 'admin') {
                 $_SESSION['tenant_id'] = $user['tenant_id'];
-                $tenant = $this->db->fetchOne("SELECT * FROM tenants WHERE tenant_id = ?", [$user['tenant_id']]);
-                if ($tenant) {
-                    $_SESSION['tenant_name'] = $tenant['company_name'];
-                }
+                $tenant = $this->db->fetchOne('tenants', ['tenant_id' => $user['tenant_id']]);
+                if ($tenant) { $_SESSION['tenant_name'] = $tenant['company_name'] ?? ''; }
             }
 
-            $_SESSION['accessible_salons'] = $this->getAccessibleSalonIds($user['id'], $user['role_name'], $user['tenant_id'] ?? null);
+            $_SESSION['accessible_salons'] = $this->getAccessibleSalonIds($user['id'], $roleName, $user['tenant_id'] ?? null);
 
             // トークンをローテーション（置き換え）
             $newTokenPlain = bin2hex(random_bytes(32));
@@ -216,19 +187,15 @@ class User
             $newExpires = date('Y-m-d H:i:s', strtotime('+30 days'));
 
             if ($hasTokenHash) {
-                // 既存のレコードを更新
-                $this->db->query("UPDATE remember_tokens SET token_hash = ?, expires_at = ? WHERE user_id = ?", [
-                    $newTokenHash,
-                    $newExpires,
-                    $record['user_id']
-                ]);
+                $this->db->update('remember_tokens', [
+                    'token_hash' => $newTokenHash,
+                    'expires_at' => $newExpires
+                ], ['user_id' => $record['user_id']]);
             } else {
-                // 旧スキーマ: token 列を更新（ハッシュで上書き）
-                $this->db->query("UPDATE remember_tokens SET token = ?, expires_at = ? WHERE user_id = ?", [
-                    $newTokenHash,
-                    $newExpires,
-                    $record['user_id']
-                ]);
+                $this->db->update('remember_tokens', [
+                    'token' => $newTokenHash,
+                    'expires_at' => $newExpires
+                ], ['user_id' => $record['user_id']]);
             }
 
             $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
@@ -244,18 +211,15 @@ class User
     }
 
     /**
-     * remember_tokens テーブルに列が存在するか
+     * remember_tokens テーブルに列が存在するか（Supabase REST対応）
      */
     private function rememberTokensHasColumn($columnName)
     {
         try {
-            $sql = "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS 
-                    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'remember_tokens' AND COLUMN_NAME = ?";
-            $row = $this->db->fetchOne($sql, [DB_NAME, $columnName]);
-            return isset($row['cnt']) && (int)$row['cnt'] > 0;
+            // 該当カラムのみを選択してみる。存在しない場合は Supabase が 400 を返すため例外で判定
+            $this->db->fetchOne('remember_tokens', [], $columnName);
+            return true;
         } catch (Exception $e) {
-            // 確認できない場合は false
-            error_log('rememberTokensHasColumn エラー: ' . $e->getMessage());
             return false;
         }
     }
@@ -268,16 +232,15 @@ class User
      */
     public function getById($userId)
     {
-        $sql = "SELECT u.*, r.role_name 
-                FROM users u 
-                LEFT JOIN roles r ON u.role_id = r.role_id 
-                WHERE u.id = ?";
-        $user = $this->db->fetchOne($sql, [$userId]);
-        
-        if ($user) {
-            unset($user['password']);
+        $user = $this->db->fetchOne('users', ['id' => $userId]);
+        if (!$user) { return false; }
+        $roleName = null;
+        if (!empty($user['role_id'])) {
+            $role = $this->db->fetchOne('roles', ['role_id' => $user['role_id']], 'role_name');
+            $roleName = $role ? $role['role_name'] : null;
         }
-        
+        $user['role_name'] = $roleName;
+        unset($user['password']);
         return $user;
     }
     
@@ -290,67 +253,11 @@ class User
      */
     public function hasRole($userId, $roleName)
     {
-        $sql = "SELECT COUNT(*) as count 
-                FROM users u 
-                JOIN roles r ON u.role_id = r.role_id 
-                WHERE u.id = ? AND r.role_name = ?";
-        $result = $this->db->fetchOne($sql, [$userId, $roleName]);
-        
-        return $result['count'] > 0;
+        $user = $this->db->fetchOne('users', ['id' => $userId]);
+        if (!$user || empty($user['role_id'])) { return false; }
+        $role = $this->db->fetchOne('roles', ['role_id' => $user['role_id']], 'role_name');
+        return $role && $role['role_name'] === $roleName;
     }
-    
-    /**
-     * 役割に基づいてアクセス可能なサロンIDのリストを取得
-     * 
-     * @param int $userId ユーザーID
-     * @param string $roleName ロール名
-     * @param int|null $tenantId テナントID
-     * @return array サロンIDの配列
-     */
-    private function getAccessibleSalonIds($userId, $roleName, $tenantId = null)
-    {
-        $salonIds = [];
-        
-        // 全体管理者は全てのサロンにアクセス可能
-        if ($roleName === 'admin') {
-            $sql = "SELECT salon_id FROM salons";
-            $salons = $this->db->fetchAll($sql);
-            
-            foreach ($salons as $salon) {
-                $salonIds[] = (int)$salon['salon_id'];
-            }
-            
-            return $salonIds;
-        }
-        
-        // テナント管理者はそのテナントの全サロンにアクセス可能
-        if ($roleName === 'tenant_admin' && $tenantId) {
-            $sql = "SELECT salon_id FROM salons WHERE tenant_id = ?";
-            $salons = $this->db->fetchAll($sql, [$tenantId]);
-            
-            foreach ($salons as $salon) {
-                $salonIds[] = (int)$salon['salon_id'];
-            }
-            
-            return $salonIds;
-        }
-        
-        // マネージャーとスタッフはuser_salonsテーブルで定義されたサロンのみアクセス可能
-        if (($roleName === 'manager' || $roleName === 'staff') && $tenantId) {
-            $sql = "SELECT salon_id FROM user_salons WHERE user_id = ?";
-            $salons = $this->db->fetchAll($sql, [$userId]);
-            
-            foreach ($salons as $salon) {
-                $salonIds[] = (int)$salon['salon_id'];
-            }
-            
-            return $salonIds;
-        }
-        
-        return $salonIds;
-    }
-    
-    // 重複していた canAccessSalon の定義を統合しました（下部の実装を使用）
     
     /**
      * 最終ログイン日時を更新
@@ -360,189 +267,157 @@ class User
      */
     public function updateLastLogin($userId)
     {
-        $sql = "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?";
-        $this->db->query($sql, [$userId]);
+        $this->db->update('users', ['last_login' => date('Y-m-d H:i:s')], ['id' => $userId]);
+        return true;
+    }
+
+    /**
+     * パスワードリセットトークンを生成
+     */
+    public function generatePasswordResetToken($email)
+    {
+        $user = $this->db->fetchOne('users', ['email' => $email, 'status' => 'active'], 'id,user_id,email,name');
+        if (!$user) { return false; }
+        
+        $token = bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $token);
+        $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
+
+        // 既存のトークンを削除
+        $this->db->delete('password_resets', ['email' => $email]);
+
+        // 新しいトークンを保存
+        $this->db->insert('password_resets', [
+            'email' => $email,
+            'token_hash' => $tokenHash,
+            'expires_at' => $expires
+        ]);
+
+        return [
+            'token' => $token,
+            'user' => $user
+        ];
+    }
+
+    /**
+     * パスワードリセットトークンを検証
+     */
+    public function verifyResetToken($token)
+    {
+        $tokenHash = hash('sha256', $token);
+        $row = $this->db->fetchOne('password_resets', ['token_hash' => $tokenHash], 'email,expires_at');
+        if (!$row) { return false; }
+        if (strtotime($row['expires_at']) <= time()) { return false; }
+        return $row['email'];
+    }
+
+    /**
+     * パスワードをリセット
+     */
+    public function resetPassword($token, $newPassword)
+    {
+        $email = $this->verifyResetToken($token);
+        if (!$email) { return false; }
+
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $this->db->update('users', ['password' => $passwordHash], ['email' => $email]);
+        $this->db->delete('password_resets', ['email' => $email]);
         return true;
     }
     
     /**
      * テナントに属するユーザーを取得
-     * 
-     * @param int $tenantId テナントID
-     * @param string|null $status ステータスでフィルタリング
-     * @return array ユーザー情報の配列
      */
     public function getByTenantId($tenantId, $status = null)
     {
-        $sql = "SELECT * FROM users WHERE tenant_id = ?";
-        $params = [$tenantId];
-        
-        if ($status) {
-            $sql .= " AND status = ?";
-            $params[] = $status;
-        }
-        
-        $sql .= " ORDER BY name ASC";
-        
-        $users = $this->db->fetchAll($sql, $params);
-        
-        // パスワードハッシュをリストから削除
-        foreach ($users as &$user) {
-            unset($user['password']);
-        }
-        
+        $filters = ['tenant_id' => $tenantId];
+        if ($status) { $filters['status'] = $status; }
+        $users = $this->db->fetchAll('users', $filters, '*', ['order' => 'name.asc']);
+        foreach ($users as &$u) { unset($u['password']); }
         return $users;
     }
     
     /**
      * テナント内でユーザーのメールアドレスが重複していないかチェック
-     * 
-     * @param string $email メールアドレス
-     * @param int $tenantId テナントID
-     * @param int|null $excludeUserId 除外するユーザーID（更新時）
-     * @return bool メールアドレスが重複していなければtrue
      */
     public function isEmailUniqueInTenant($email, $tenantId, $excludeUserId = null)
     {
-        $sql = "SELECT COUNT(*) as count FROM users WHERE email = ? AND tenant_id = ?";
-        $params = [$email, $tenantId];
-        
-        if ($excludeUserId) {
-            $sql .= " AND id != ?";
-            $params[] = $excludeUserId;
-        }
-        
-        $result = $this->db->fetchOne($sql, $params);
-        
-        return $result['count'] == 0;
+        $row = $this->db->fetchOne('users', ['email' => $email, 'tenant_id' => $tenantId], 'id');
+        if (!$row) { return true; }
+        if ($excludeUserId && (int)$row['id'] === (int)$excludeUserId) { return true; }
+        return false;
     }
     
     /**
      * メールアドレスが既に存在するかチェック（テナント関係なく）
-     * 
-     * @param string $email メールアドレス
-     * @param int|null $excludeUserId 除外するユーザーID（更新時）
-     * @return bool メールアドレスが存在する場合はtrue
      */
     public function emailExists($email, $excludeUserId = null)
     {
-        $sql = "SELECT COUNT(*) as count FROM users WHERE email = ?";
-        $params = [$email];
-        
-        if ($excludeUserId) {
-            $sql .= " AND id != ?";
-            $params[] = $excludeUserId;
-        }
-        
-        $result = $this->db->fetchOne($sql, $params);
-        
-        return $result['count'] > 0;
+        $row = $this->db->fetchOne('users', ['email' => $email], 'id');
+        if (!$row) { return false; }
+        if ($excludeUserId && (int)$row['id'] === (int)$excludeUserId) { return false; }
+        return true;
     }
     
     /**
      * ユーザーを登録する
-     * 
-     * @param array $data ユーザーデータ
-     * @return int 新しく登録されたユーザーのID
      */
     public function register($data)
     {
-        // パスワードをハッシュ化
         $passwordHash = password_hash($data['password'], PASSWORD_DEFAULT);
-        
-        // ユーザーIDを生成（ユニークな識別子として使用）
         $userId = $this->generateUniqueUserId($data['name']);
-        
-        // ロールIDを取得
         $roleName = $data['role'] ?? 'staff';
         $roleId = $this->getRoleIdByName($roleName);
-        
-        if (!$roleId) {
-            throw new Exception('指定されたロールが見つかりません: ' . $roleName);
-        }
-        
-        // SQLの準備
-        $sql = "INSERT INTO users (user_id, tenant_id, email, password, name, status, role_id, created_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
-        
-        // パラメータの準備
-        $params = [
-            $userId,
-            $data['tenant_id'] ?? null,
-            $data['email'],
-            $passwordHash,
-            $data['name'],
-            $data['status'] ?? 'active',
-            $roleId
+        if (!$roleId) { throw new Exception('指定されたロールが見つかりません: ' . $roleName); }
+
+        $insert = [
+            'user_id' => $userId,
+            'tenant_id' => $data['tenant_id'] ?? null,
+            'email' => $data['email'],
+            'password' => $passwordHash,
+            'name' => $data['name'],
+            'status' => $data['status'] ?? 'active',
+            'role_id' => $roleId,
+            'created_at' => date('Y-m-d H:i:s')
         ];
-        
-        // クエリの実行
-        $this->db->query($sql, $params);
-        
-        // 挿入されたIDを返す
-        return $this->db->lastInsertId();
-    }
-    
-    /**
-     * ユニークなユーザーIDを生成する
-     * 
-     * @param string $name ユーザー名
-     * @return string ユニークなユーザーID
-     */
-    private function generateUniqueUserId($name)
-    {
-        // 名前からベースとなる文字列を生成
-        $base = mb_strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $name)));
-        if (empty($base)) {
-            $base = 'user';
-        }
-        
-        // 最初の試み
-        $userId = substr($base, 0, 8) . rand(100, 999);
-        
-        // 既に存在する場合は別のIDを試す
-        $count = 0;
-        $maxTries = 10;
-        
-        while ($this->userIdExists($userId) && $count < $maxTries) {
-            $userId = substr($base, 0, 6) . rand(1000, 9999);
-            $count++;
-        }
-        
-        // それでも重複する場合はタイムスタンプを使用
-        if ($this->userIdExists($userId)) {
-            $userId = substr($base, 0, 5) . time();
-        }
-        
-        return $userId;
+        $res = $this->db->insert('users', $insert);
+        $new = is_array($res) && isset($res[0]) ? $res[0] : $res;
+        if (!isset($new['id'])) { throw new Exception('ユーザー登録に失敗しました'); }
+        return (int)$new['id'];
     }
     
     /**
      * 指定されたユーザーIDが既に存在するか確認
-     * 
-     * @param string $userId ユーザーID
-     * @return bool 存在する場合はtrue
      */
     private function userIdExists($userId)
     {
-        $sql = "SELECT COUNT(*) as count FROM users WHERE user_id = ?";
-        $result = $this->db->fetchOne($sql, [$userId]);
-        
-        return $result['count'] > 0;
+        $row = $this->db->fetchOne('users', ['user_id' => $userId], 'id');
+        return (bool)$row;
+    }
+
+    /**
+     * 一意なユーザーIDを生成（"U" + 10桁英数字）
+     */
+    private function generateUniqueUserId($seed = '')
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $candidate = 'U' . substr(bin2hex(random_bytes(8)), 0, 10);
+            if (!$this->userIdExists($candidate)) {
+                return $candidate;
+            }
+        }
+        // フォールバック
+        $fallback = 'U' . substr(hash('sha1', $seed . microtime(true)), 0, 10);
+        return $fallback;
     }
     
     /**
      * ロール名からロールIDを取得
-     * 
-     * @param string $roleName ロール名
-     * @return int|null ロールID、存在しない場合はnull
      */
     private function getRoleIdByName($roleName)
     {
-        $sql = "SELECT role_id FROM roles WHERE role_name = ?";
-        $result = $this->db->fetchOne($sql, [$roleName]);
-        
-        return $result ? $result['role_id'] : null;
+        $row = $this->db->fetchOne('roles', ['role_name' => $roleName], 'role_id');
+        return $row ? $row['role_id'] : null;
     }
     
     /**
@@ -557,7 +432,6 @@ class User
         if (isset($data['tenant_id']) && !$this->isEmailUniqueInTenant($data['email'], $data['tenant_id'])) {
             throw new Exception('メールアドレスは既に使用されています。');
         }
-        
         return $this->register($data);
     }
     
@@ -572,55 +446,24 @@ class User
         if (!isset($data['id'])) {
             throw new Exception('ユーザーIDが指定されていません。');
         }
-        
         $userId = $data['id'];
-        $fields = [];
-        $params = [];
-        
-        // 更新可能なフィールド
-        $updateableFields = [
-            'name', 'email', 'status', 'tenant_id', 'role_id'
-        ];
-        
-        // フィールドの設定
-        foreach ($updateableFields as $field) {
-            if (isset($data[$field])) {
-                $fields[] = "{$field} = ?";
-                $params[] = $data[$field];
-            }
+        $update = [];
+        foreach (['name','email','status','tenant_id','role_id'] as $field) {
+            if (array_key_exists($field, $data)) { $update[$field] = $data[$field]; }
         }
-        
-        // パスワード更新
-        if (!empty($data['password'])) {
-            $fields[] = "password = ?";
-            $params[] = password_hash($data['password'], PASSWORD_DEFAULT);
-        }
-        
-        // 更新するフィールドがあれば実行
-        if (!empty($fields)) {
-            $fields[] = "updated_at = NOW()";
-            
-            $sql = "UPDATE users SET " . implode(", ", $fields) . " WHERE id = ?";
-            $params[] = $userId;
-            
-            $this->db->query($sql, $params);
-            return true;
-        }
-        
-        return false;
+        if (!empty($data['password'])) { $update['password'] = password_hash($data['password'], PASSWORD_DEFAULT); }
+        if (empty($update)) { return false; }
+        $update['updated_at'] = date('Y-m-d H:i:s');
+        $this->db->update('users', $update, ['id' => $userId]);
+        return true;
     }
     
     /**
      * ユーザーを削除する
-     * 
-     * @param int $userId ユーザーID
-     * @return bool 削除が成功したかどうか
      */
     public function performDelete($userId)
     {
-        $sql = "DELETE FROM users WHERE id = ?";
-        $this->db->query($sql, [$userId]);
-        
+        $this->db->delete('users', ['id' => $userId]);
         return true;
     }
     
@@ -629,15 +472,9 @@ class User
      */
     public function logout()
     {
-        // セッション変数をクリア
         $_SESSION = [];
+        if (isset($_COOKIE[session_name()])) { setcookie(session_name(), '', time() - 86400, '/'); }
         
-        // Cookieを削除
-        if (isset($_COOKIE[session_name()])) {
-            setcookie(session_name(), '', time() - 86400, '/');
-        }
-        
-        // Remember Me CookieとDBトークンも削除
         if (isset($_COOKIE['remember_token'])) {
             $tokenPlain = $_COOKIE['remember_token'];
             $tokenHash = hash('sha256', $tokenPlain);
@@ -645,11 +482,10 @@ class User
             try {
                 $hasTokenHash = $this->rememberTokensHasColumn('token_hash');
                 if ($hasTokenHash) {
-                    $this->db->query("DELETE FROM remember_tokens WHERE token_hash = ?", [$tokenHash]);
+                    $this->db->delete('remember_tokens', ['token_hash' => $tokenHash]);
                 } else {
-                    // 旧スキーマ: ハッシュ or 平文の両方を試す
-                    $this->db->query("DELETE FROM remember_tokens WHERE token = ?", [$tokenHash]);
-                    $this->db->query("DELETE FROM remember_tokens WHERE token = ?", [$tokenPlain]);
+                    $this->db->delete('remember_tokens', ['token' => $tokenHash]);
+                    $this->db->delete('remember_tokens', ['token' => $tokenPlain]);
                 }
             } catch (Exception $e) {
                 error_log('Remember Me トークン削除エラー: ' . $e->getMessage());
@@ -658,68 +494,61 @@ class User
             $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
             setcookie('remember_token', '', time() - 86400, '/', '', $secure, true);
         }
-        
-        // セッションを破棄
         session_destroy();
     }
     
     /**
      * ユーザーがアクセス可能なサロン一覧を取得
-     * 
-     * @param int $userId ユーザーID
-     * @return array アクセス可能なサロンの配列
      */
     public function getAccessibleSalons($userId)
     {
         try {
-            // ユーザー情報を取得
-            $userSql = "SELECT u.*, r.role_name FROM users u 
-                       LEFT JOIN roles r ON u.role_id = r.role_id 
-                       WHERE u.id = ?";
-            $user = $this->db->fetchOne($userSql, [$userId]);
-            
-            if (!$user) {
-                return [];
+            $user = $this->getById($userId);
+            if (!$user) { return []; }
+            $roleName = $user['role_name'] ?? null;
+
+            // 事前にテナント一覧を取得してマップ化
+            $tenants = $this->db->fetchAll('tenants', [], 'tenant_id,company_name');
+            $tenantMap = [];
+            foreach ($tenants as $t) { $tenantMap[$t['tenant_id']] = $t['company_name'] ?? null; }
+
+            if ($roleName === 'admin') {
+                $salons = $this->db->fetchAll('salons', ['status' => 'active'], '*', ['order' => 'name.asc']);
+                foreach ($salons as &$s) { $s['company_name'] = $tenantMap[$s['tenant_id']] ?? null; }
+                return $salons;
             }
             
-            // 管理者（admin）の場合は全てのサロンにアクセス可能
-            if ($user['role_name'] === 'admin') {
-                $sql = "SELECT s.*, t.company_name FROM salons s 
-                       LEFT JOIN tenants t ON s.tenant_id = t.tenant_id 
-                       WHERE s.status = 'active' 
-                       ORDER BY t.company_name, s.name";
-                return $this->db->fetchAll($sql);
+            if ($roleName === 'tenant_admin' && !empty($user['tenant_id'])) {
+                $salons = $this->db->fetchAll('salons', ['tenant_id' => $user['tenant_id'], 'status' => 'active'], '*', ['order' => 'name.asc']);
+                foreach ($salons as &$s) { $s['company_name'] = $tenantMap[$s['tenant_id']] ?? null; }
+                return $salons;
             }
             
-            // テナント管理者の場合は自テナントの全サロンにアクセス可能
-            if ($user['role_name'] === 'tenant_admin' && $user['tenant_id']) {
-                $sql = "SELECT s.*, t.company_name FROM salons s 
-                       LEFT JOIN tenants t ON s.tenant_id = t.tenant_id 
-                       WHERE s.tenant_id = ? AND s.status = 'active' 
-                       ORDER BY s.name";
-                return $this->db->fetchAll($sql, [$user['tenant_id']]);
-            }
-            
-            // マネージャーやスタッフの場合は割り当てられたサロンのみ
-            $sql = "SELECT s.*, t.company_name FROM salons s 
-                   LEFT JOIN tenants t ON s.tenant_id = t.tenant_id 
-                   INNER JOIN user_salons us ON s.salon_id = us.salon_id 
-                   WHERE us.user_id = ? AND s.status = 'active' 
-                   ORDER BY t.company_name, s.name";
-            return $this->db->fetchAll($sql, [$userId]);
+            // manager/staff
+            $userSalons = $this->db->fetchAll('user_salons', ['user_id' => $userId], 'salon_id');
+            $salonIds = array_map(function($r){ return (int)$r['salon_id']; }, $userSalons);
+            if (empty($salonIds)) { return []; }
+            $salons = $this->db->fetchAll('salons', ['salon_id' => $salonIds, 'status' => 'active'], '*', ['order' => 'name.asc']);
+            foreach ($salons as &$s) { $s['company_name'] = $tenantMap[$s['tenant_id']] ?? null; }
+            return $salons;
             
         } catch (Exception $e) {
             error_log("getAccessibleSalons エラー: " . $e->getMessage());
             return [];
         }
     }
+
+    /**
+     * アクセス可能なサロンID一覧を取得（セッション格納用の軽量版）
+     */
+    private function getAccessibleSalonIds($userId, $roleName = null, $tenantId = null)
+    {
+        $salons = $this->getAccessibleSalons($userId);
+        return array_column($salons, 'salon_id');
+    }
     
     /**
      * ユーザーが特定のサロンにアクセス可能かチェック
-     * 
-     * @param int $userId ユーザーID
-     * @param int $salonId サロンID
-     * @return bool アクセス可能な場合はtrue
      */
     public function canAccessSalon($userId, $salonId)
     {
@@ -727,4 +556,104 @@ class User
         $accessibleSalonIds = array_column($accessibleSalons, 'salon_id');
         return in_array($salonId, $accessibleSalonIds);
     }
-} 
+    
+    /**
+     * Supabaseユーザー情報を使用してローカルデータベースにユーザーを作成
+     */
+    public function createWithSupabase($supabase_user_id, $email, $name, $tenantId, $salonId, $roleId = 'staff')
+    {
+        try {
+            // 重複チェック
+            $existingUser = $this->db->fetchOne('users', ['email' => $email]);
+            if ($existingUser) { error_log("メールアドレスが既に使用されています: " . $email); return false; }
+            $existingSupabaseUser = $this->db->fetchOne('users', ['supabase_user_id' => $supabase_user_id]);
+            if ($existingSupabaseUser) { error_log("SupabaseユーザーIDが既に使用されています: " . $supabase_user_id); return false; }
+            
+            // ユーザーID生成
+            $userId = 'U' . str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+            while ($this->db->fetchOne('users', ['user_id' => $userId])) {
+                $userId = 'U' . str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+            }
+
+            // role_id 解決（数値ID or ロール名）
+            if (is_numeric($roleId)) {
+                $resolvedRoleId = (int)$roleId;
+            } else {
+                $resolvedRoleId = $this->getRoleIdByName($roleId ?: 'staff');
+                if (!$resolvedRoleId) { $resolvedRoleId = $this->getRoleIdByName('staff'); }
+            }
+            
+            // 挿入
+            $res = $this->db->insert('users', [
+                'user_id' => $userId,
+                'supabase_user_id' => $supabase_user_id,
+                'name' => $name,
+                'email' => $email,
+                'role_id' => $resolvedRoleId,
+                'tenant_id' => $tenantId,
+                'status' => 'pending',
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s')
+            ]);
+            $new = is_array($res) && isset($res[0]) ? $res[0] : $res;
+            if (!isset($new['id'])) { error_log('ユーザー作成に失敗しました'); return false; }
+            $newUserId = $new['id'];
+            
+            // サロン関連付け
+            if (!empty($salonId)) {
+                $this->db->insert('user_salons', [
+                    'user_id' => $newUserId,
+                    'salon_id' => $salonId,
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+            }
+            
+            // 作成ユーザー取得
+            $createdUser = $this->db->fetchOne('users', ['id' => $newUserId]);
+            if ($createdUser && isset($createdUser['role_id'])) {
+                $role = $this->db->fetchOne('roles', ['role_id' => $createdUser['role_id']], 'role_name');
+                if ($role) { $createdUser['role_name'] = $role['role_name']; }
+            }
+            
+            error_log("ユーザー作成成功: " . json_encode($createdUser, JSON_UNESCAPED_UNICODE));
+            return $createdUser;
+            
+        } catch (Exception $e) {
+            error_log("createWithSupabase エラー: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * SupabaseユーザーIDでユーザーを検索
+     * 
+     * @param string $supabase_user_id SupabaseユーザーID
+     * @return array|false ユーザー情報または false
+     */
+    public function findBySupabaseId($supabase_user_id)
+    {
+        try {
+            // Supabase REST APIを使用してユーザーを検索
+            $filters = [
+                'supabase_user_id' => $supabase_user_id,
+                'status' => 'active'
+            ];
+            
+            $result = $this->db->fetchOne('users', $filters);
+            
+            if ($result && isset($result['role_id'])) {
+                // 別途ロール情報を取得
+                $role = $this->db->fetchOne('roles', ['role_id' => $result['role_id']], 'role_name');
+                if ($role) {
+                    $result['role_name'] = $role['role_name'];
+                }
+            }
+            
+            error_log("findBySupabaseId 結果: " . json_encode($result, JSON_UNESCAPED_UNICODE));
+            return $result;
+        } catch (Exception $e) {
+            error_log("findBySupabaseId エラー: " . $e->getMessage());
+            return false;
+        }
+    }
+}
